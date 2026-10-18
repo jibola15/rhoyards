@@ -238,6 +238,10 @@ export interface VariantLookup {
   qtyOnHand: string | null;
   qtyAvailable: string | null;
   barcodes: string[];
+  /** The product's default tax rate. */
+  taxRateId: string;
+  taxRate: string;
+  standardCost: string | null;
 }
 
 // ── Suppliers ──────────────────────────────────────────────────────────────

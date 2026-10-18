@@ -27,6 +27,19 @@ const TransferPage = page(() => import('./features/inventory/TransferPage'), 'Tr
 const UsersPage = page(() => import('./features/users/UsersPage'), 'UsersPage');
 const RolesPage = page(() => import('./features/roles/RolesPage'), 'RolesPage');
 const SettingsPage = page(() => import('./features/settings/SettingsPage'), 'SettingsPage');
+const lists = () => import('./features/purchasing/PurchasingLists');
+const PurchaseOrdersPage = page(lists, 'PurchaseOrdersPage');
+const GoodsReceiptsPage = page(lists, 'GoodsReceiptsPage');
+const SupplierInvoicesPage = page(lists, 'SupplierInvoicesPage');
+const SupplierPaymentsPage = page(lists, 'SupplierPaymentsPage');
+const PurchaseReturnsPage = page(lists, 'PurchaseReturnsPage');
+const PurchaseOrderPage = page(() => import('./features/purchasing/PurchaseOrderPage'), 'PurchaseOrderPage');
+const GoodsReceiptPage = page(() => import('./features/purchasing/GoodsReceiptPage'), 'GoodsReceiptPage');
+const SupplierInvoicePage = page(() => import('./features/purchasing/SupplierInvoicePage'), 'SupplierInvoicePage');
+const SupplierPaymentPage = page(() => import('./features/purchasing/SupplierPaymentPage'), 'SupplierPaymentPage');
+const PurchaseReturnPage = page(() => import('./features/purchasing/PurchaseReturnPage'), 'PurchaseReturnPage');
+const SupplierDetailPage = page(() => import('./features/purchasing/SupplierDetailPage'), 'SupplierDetailPage');
+const PayablesAgingPage = page(() => import('./features/purchasing/PayablesAgingPage'), 'PayablesAgingPage');
 
 const guarded = (path: string, permission: Permission, element: ReactNode): RouteObject => ({
   path,
@@ -47,6 +60,23 @@ export const routes: RouteObject[] = [
           guarded('catalog/products/:id', 'catalog.view', <ProductEditorPage />),
           guarded('catalog/setup', 'catalog.view', <CatalogSetupPage />),
           guarded('suppliers', 'suppliers.view', <SuppliersPage />),
+          guarded('suppliers/:id', 'suppliers.view', <SupplierDetailPage />),
+          guarded('purchasing/orders', 'purchasing.view', <PurchaseOrdersPage />),
+          guarded('purchasing/orders/new', 'purchasing.manage', <PurchaseOrderPage />),
+          guarded('purchasing/orders/:id', 'purchasing.view', <PurchaseOrderPage />),
+          guarded('purchasing/receipts', 'purchasing.view', <GoodsReceiptsPage />),
+          guarded('purchasing/receipts/new', 'purchasing.manage', <GoodsReceiptPage />),
+          guarded('purchasing/receipts/:id', 'purchasing.view', <GoodsReceiptPage />),
+          guarded('purchasing/invoices', 'purchasing.view', <SupplierInvoicesPage />),
+          guarded('purchasing/invoices/new', 'supplier_invoices.manage', <SupplierInvoicePage />),
+          guarded('purchasing/invoices/:id', 'purchasing.view', <SupplierInvoicePage />),
+          guarded('purchasing/payments', 'purchasing.view', <SupplierPaymentsPage />),
+          guarded('purchasing/payments/new', 'supplier_payments.manage', <SupplierPaymentPage />),
+          guarded('purchasing/payments/:id', 'purchasing.view', <SupplierPaymentPage />),
+          guarded('purchasing/returns', 'purchasing.view', <PurchaseReturnsPage />),
+          guarded('purchasing/returns/new', 'purchasing.manage', <PurchaseReturnPage />),
+          guarded('purchasing/returns/:id', 'purchasing.view', <PurchaseReturnPage />),
+          guarded('purchasing/payables', 'purchasing.view', <PayablesAgingPage />),
           guarded('inventory/stock', 'inventory.view', <StockPage />),
           guarded('inventory/movements', 'inventory.view', <MovementsPage />),
           guarded('inventory/expiry', 'inventory.view', <ExpiryPage />),

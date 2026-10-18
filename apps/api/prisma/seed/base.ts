@@ -42,6 +42,7 @@ export async function ensureFiscalYear(prisma: PrismaClient, startYear: number, 
  * so re-running never overwrites settings, accounts or role permissions edited by users.
  */
 export async function seedBase(prisma: PrismaClient, now = new Date()) {
+  const knownBefore = new Set((await prisma.permission.findMany({ select: { code: true } })).map((p) => p.code));
   await prisma.permission.createMany({
     data: ALL_PERMISSIONS.map((code) => ({ code, module: code.split('.')[0]!, description: PERMISSIONS[code] })),
     skipDuplicates: true,
@@ -77,8 +78,13 @@ export async function seedBase(prisma: PrismaClient, now = new Date()) {
   });
   const configured = new Set(existingAssignments.map((r) => r.roleId));
   const ownerId = roles.find((r) => r.code === 'OWNER')?.id;
+  // Permissions introduced since the last seed are granted to the system roles whose defaults include them;
+  // existing role edits are left alone.
+  const newPermIds = new Set(permissions.filter((p) => !knownBefore.has(p.code)).map((p) => p.id));
   await prisma.rolePermission.createMany({
-    data: rolePermRows.filter((r) => r.roleId === ownerId || !configured.has(r.roleId)),
+    data: rolePermRows.filter(
+      (r) => r.roleId === ownerId || !configured.has(r.roleId) || (knownBefore.size > 0 && newPermIds.has(r.permissionId)),
+    ),
     skipDuplicates: true,
   });
 

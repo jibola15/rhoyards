@@ -1,7 +1,13 @@
 import {
   Activity,
   ArrowLeftRight,
+  Banknote,
   Boxes,
+  FileText,
+  Hourglass,
+  PackageCheck,
+  ShoppingCart,
+  Undo2,
   CalendarClock,
   ClipboardList,
   History,
@@ -49,7 +55,15 @@ export const navGroups: NavGroup[] = [
   },
   {
     label: 'Purchasing',
-    items: [{ label: 'Suppliers', to: '/suppliers', icon: Truck, permission: 'suppliers.view' }],
+    items: [
+      { label: 'Purchase orders', to: '/purchasing/orders', icon: ShoppingCart, permission: 'purchasing.view' },
+      { label: 'Goods received', to: '/purchasing/receipts', icon: PackageCheck, permission: 'purchasing.view' },
+      { label: 'Supplier invoices', to: '/purchasing/invoices', icon: FileText, permission: 'purchasing.view' },
+      { label: 'Supplier payments', to: '/purchasing/payments', icon: Banknote, permission: 'purchasing.view' },
+      { label: 'Returns to suppliers', to: '/purchasing/returns', icon: Undo2, permission: 'purchasing.view' },
+      { label: 'Aged payables', to: '/purchasing/payables', icon: Hourglass, permission: 'purchasing.view' },
+      { label: 'Suppliers', to: '/suppliers', icon: Truck, permission: 'suppliers.view' },
+    ],
   },
   {
     label: 'Administration',

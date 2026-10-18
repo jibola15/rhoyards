@@ -3,7 +3,7 @@
 The rules every module follows when it posts to the general ledger. Implemented by the posting engine
 ([`apps/api/src/engines/posting/posting.service.ts`](../apps/api/src/engines/posting/posting.service.ts)); enforced again by database triggers (see [DATABASE.md](DATABASE.md)).
 
-Status: the **engine, ledger guards, chart of accounts and periods are built (Phase 2)**; **inventory costing, stock adjustments and transfers are built (Phase 3)**. Posting rules marked *(Phase n)* for later phases are applied when that module is built.
+Status: the **engine, ledger guards, chart of accounts and periods are built (Phase 2)**; **inventory costing, stock adjustments and transfers are built (Phase 3)**; **purchasing — receipts, supplier invoices, payments and returns — is built (Phase 4)**. Posting rules marked *(Phase n)* for later phases are applied when that module is built.
 
 ## 1. Fundamentals
 
@@ -58,10 +58,10 @@ Dispatch removes stock (FEFO; expired lots are not sent) from the source; receip
 
 | Event | Debit | Credit |
 |---|---|---|
-| Goods received (GRN) *(Phase 4)* | Inventory (1200) at GRN cost | GRNI (2010) |
-| Supplier invoice *(Phase 4)* | GRNI (matched value); VAT input (if recoverable); PPV (5030) if invoice > GRN | AP (2000); PPV if invoice < GRN |
-| Supplier payment *(Phase 4)* | AP | Bank / Cash |
-| Purchase return *(Phase 4)* | AP (or GRNI if not invoiced) | Inventory at WAC; difference to PPV |
+| Goods received (GRN) *(built — §5a)* | Inventory (1200) at GRN cost | GRNI (2010) |
+| Supplier invoice *(built — §5a)* | GRNI (matched value); expense lines; VAT input; PPV (5030) if invoice > GRN | AP (2000); PPV if invoice < GRN |
+| Supplier payment *(built)* | AP | Bank / Cash |
+| Purchase return *(built — §5a)* | GRNI (uninvoiced part); AP (invoiced part incl. VAT) | Inventory at WAC; VAT input; difference to PPV |
 | POS sale *(Phase 5)* | Cash (1000) / Card clearing (1020) / Bank (1010) per payment method; AR (1100) for an authorised credit balance | Sales revenue (4000) net of discounts; VAT output |
 | …and its cost *(Phase 5)* | COGS (5000) at WAC | Inventory |
 | Credit-sale receipt *(Phase 8)* | Cash / Bank | AR |
@@ -79,6 +79,24 @@ Dispatch removes stock (FEFO; expired lots are not sent) from the source; receip
 | Year-end close *(Phase 6)* | income accounts | expense accounts; difference to Retained earnings (3100) |
 
 Discounts are posted **net** (revenue is recorded after the line discount); the discount amount is stored on the sale for reporting.
+
+## 5a. Purchasing in detail *(built in Phase 4)*
+
+Purchase prices are **exclusive of VAT**. Stock is valued at the net cost; VAT on supplier invoices is recoverable input VAT (the business is VAT-registered).
+
+**Three-way match (order → receipt → invoice).**
+- Receiving goods (GRN) books Dr Inventory / Cr GRNI at the receipt cost, per line `value = round₂(qty × cost)`. Receipts against an order may be partial; receiving more than is outstanding is refused under row locks.
+- A supplier invoice line either matches received goods or charges an expense/prepayment account (delivery, services). For a matched line: GRNI cleared = round₂(qty × receipt cost) — or, when the invoice completes the line, exactly the GRNI still outstanding; the invoiced net minus the GRNI cleared goes to Purchase price variance (5030). VAT input = round₂(net × rate) per line. The invoice credits AP with its total.
+- The same goods cannot be invoiced twice (matched quantities are recorded on the receipt line under a row lock; CHECK `qty_invoiced + qty_returned_uninvoiced ≤ qty`), and the same supplier invoice number cannot be entered twice for a supplier.
+- Expense lines carry VAT only when a rate is chosen.
+
+**Payments.** Dr AP / Cr the chosen cash or bank account. A payment may be applied to several invoices (never beyond an invoice's outstanding amount, enforced under row locks); any remainder stays as a credit with the supplier. Payments are immutable; the API requires an `Idempotency-Key` so a retried request cannot pay twice.
+
+**Returns to supplier** are made against the goods receipt the stock arrived on and use that line's lot. Stock leaves at the moving average (Cr Inventory). The quantity not yet invoiced is returned first and clears GRNI at the receipt cost; quantity already invoiced raises a debit note at the average invoiced price: Dr AP (net + VAT), Cr VAT input. Any difference between what is cleared/credited and the stock value goes to Purchase price variance.
+
+**What we owe a supplier** = posted invoices − payments − return credits (debit notes). Unapplied payments and return credits are shown as credits on the aged-payables report.
+
+**Controls (tested):** AP ledger balance = Σ supplier balances; GRNI ledger balance = Σ (receipt line value − GRNI cleared) over posted receipts; Inventory ledger balance = stock ledger value.
 
 ## 6. Profit measures
 

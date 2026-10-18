@@ -453,6 +453,7 @@ const lookupSelect = {
   name: true,
   sellingPrice: true,
   avgCost: true,
+  standardCost: true,
   status: true,
   barcodes: { select: { barcode: true }, orderBy: { isPrimary: 'desc' } },
   product: {
@@ -464,6 +465,7 @@ const lookupSelect = {
       isExpiryTracked: true,
       brand: { select: { name: true } },
       unit: { select: { code: true, allowsFraction: true } },
+      taxRate: { select: { id: true, rate: true } },
     },
   },
 } satisfies Prisma.ProductVariantSelect;
@@ -496,6 +498,9 @@ async function withBalances(rows: LookupRow[], locationId: string | undefined): 
       qtyOnHand: onHand?.toFixed(3) ?? null,
       qtyAvailable: onHand ? onHand.minus(b?.qtyReserved ?? 0).toFixed(3) : null,
       barcodes: r.barcodes.map((x) => x.barcode),
+      taxRateId: r.product.taxRate.id,
+      taxRate: r.product.taxRate.rate.toFixed(4),
+      standardCost: r.standardCost?.toFixed(4) ?? null,
     };
   });
 }

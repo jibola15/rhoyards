@@ -25,6 +25,9 @@ const variant: VariantLookup = {
   qtyOnHand: '40.000',
   qtyAvailable: '40.000',
   barcodes: ['2000000000097'],
+  taxRateId: 'aaaaaaaa-0000-4000-8000-0000000000b1',
+  taxRate: '7.5000',
+  standardCost: null,
 };
 
 const draft: AdjustmentDetail = {

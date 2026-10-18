@@ -6,6 +6,11 @@ const VARIANTS: Record<string, { label: string; variant: BadgeProps['variant'] }
   CANCELLED: { label: 'Cancelled', variant: 'secondary' },
   DISPATCHED: { label: 'In transit', variant: 'warning' },
   RECEIVED: { label: 'Received', variant: 'success' },
+  APPROVED: { label: 'Approved', variant: 'secondary' },
+  PARTIALLY_RECEIVED: { label: 'Partly received', variant: 'warning' },
+  CLOSED: { label: 'Closed', variant: 'secondary' },
+  PARTIALLY_PAID: { label: 'Partly paid', variant: 'warning' },
+  PAID: { label: 'Paid', variant: 'success' },
   ACTIVE: { label: 'Active', variant: 'success' },
   DISCONTINUED: { label: 'Discontinued', variant: 'secondary' },
 };

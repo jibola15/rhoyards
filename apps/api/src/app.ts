@@ -12,6 +12,7 @@ import { LocalDiskStorage, type FileStorage } from './lib/storage';
 import { catalogRouter } from './modules/catalog/catalog.routes';
 import { filesRouter } from './modules/files/files.routes';
 import { inventoryRouter } from './modules/inventory/inventory.routes';
+import { purchasingRouter } from './modules/purchasing/purchasing.routes';
 import { suppliersRouter } from './modules/suppliers/suppliers.routes';
 import { errorHandler, notFoundHandler } from './middleware/error-handler';
 import { createRateLimiter } from './middleware/rate-limit';
@@ -86,6 +87,7 @@ export function createApp(
   app.use('/api/v1', catalogRouter);
   app.use('/api/v1', suppliersRouter);
   app.use('/api/v1', inventoryRouter);
+  app.use('/api/v1', purchasingRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler(logger));

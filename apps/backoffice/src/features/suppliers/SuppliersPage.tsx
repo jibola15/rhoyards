@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -206,7 +207,10 @@ export function SuppliersPage() {
                     <TableRow key={s.id} className={s.isActive ? undefined : 'opacity-60'}>
                       <TableCell>
                         <div className="font-medium">
-                          {s.name} {!s.isActive && <Badge variant="outline">Inactive</Badge>}
+                          <Link to={`/suppliers/${s.id}`} className="hover:underline">
+                            {s.name}
+                          </Link>{' '}
+                          {!s.isActive && <Badge variant="outline">Inactive</Badge>}
                         </div>
                         <div className="font-mono text-xs text-muted-foreground">{s.code}</div>
                       </TableCell>

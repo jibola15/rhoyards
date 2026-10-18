@@ -18,6 +18,9 @@ Date: 2026-10-18
 | 2026-10-19 | Expiry tracking implies batch tracking; lots without a number are named from their expiry date | One mechanism (lots) for FEFO, expiry blocking and traceability |
 | 2026-10-19 | Transfers are two-step (dispatch → receive) with no GL entry; in-transit quantity reported by the valuation endpoint | Value stays in Inventory throughout |
 | 2026-10-19 | Product images re-encoded server-side to WebP (≤1600 px, metadata stripped) | Upload safety (no client bytes stored) and consistent storefront images |
+| 2026-10-20 | Purchase price variance is expensed (5030) rather than re-costing stock | Simple and auditable for v1; stock stays at receipt cost |
+| 2026-10-20 | New permission `supplier_invoices.manage` (Owner, Manager, Accountant); seed grants newly added permissions to system roles without touching edited ones | Invoice entry is accounting work, separate from receiving goods |
+| 2026-10-20 | Supplier payments are final (no void); corrections via journal reversal (Phase 6) | Immutable money records |
 
 ---
 

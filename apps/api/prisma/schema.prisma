@@ -58,6 +58,20 @@ model User {
   transfersReceived    StockTransfer[]   @relation("TransferReceivedBy")
   transfersCancelled   StockTransfer[]   @relation("TransferCancelledBy")
 
+  purchaseOrdersCreated  PurchaseOrder[]   @relation("PoCreatedBy")
+  purchaseOrdersApproved PurchaseOrder[]   @relation("PoApprovedBy")
+  purchaseOrdersEnded    PurchaseOrder[]   @relation("PoEndedBy")
+  receiptsCreated        GoodsReceipt[]    @relation("GrnCreatedBy")
+  receiptsPosted         GoodsReceipt[]    @relation("GrnPostedBy")
+  receiptsCancelled      GoodsReceipt[]    @relation("GrnCancelledBy")
+  invoicesCreated        SupplierInvoice[] @relation("InvCreatedBy")
+  invoicesPosted         SupplierInvoice[] @relation("InvPostedBy")
+  invoicesCancelled      SupplierInvoice[] @relation("InvCancelledBy")
+  supplierPayments       SupplierPayment[]
+  returnsCreated         PurchaseReturn[]  @relation("RetCreatedBy")
+  returnsPosted          PurchaseReturn[]  @relation("RetPostedBy")
+  returnsCancelled       PurchaseReturn[]  @relation("RetCancelledBy")
+
   @@index([status])
   @@map("users")
 }
@@ -206,9 +220,12 @@ model TaxRate {
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  outputAccount Account?  @relation("TaxOutputAccount", fields: [outputAccountId], references: [id], onDelete: Restrict)
-  inputAccount  Account?  @relation("TaxInputAccount", fields: [inputAccountId], references: [id], onDelete: Restrict)
+  outputAccount Account?              @relation("TaxOutputAccount", fields: [outputAccountId], references: [id], onDelete: Restrict)
+  inputAccount  Account?              @relation("TaxInputAccount", fields: [inputAccountId], references: [id], onDelete: Restrict)
   products      Product[]
+  poLines       PurchaseOrderLine[]
+  grnLines      GoodsReceiptLine[]
+  invoiceLines  SupplierInvoiceLine[]
 
   @@map("tax_rates")
 }
@@ -257,14 +274,17 @@ model Location {
   createdAt          DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt          DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  users        UserLocation[]
-  journalLines JournalLine[]
-  balances     InventoryBalance[]
-  batches      InventoryBatch[]
-  movements    StockMovement[]
-  adjustments  StockAdjustment[]
-  transfersOut StockTransfer[]    @relation("TransferFrom")
-  transfersIn  StockTransfer[]    @relation("TransferTo")
+  users           UserLocation[]
+  journalLines    JournalLine[]
+  balances        InventoryBalance[]
+  batches         InventoryBatch[]
+  movements       StockMovement[]
+  adjustments     StockAdjustment[]
+  transfersOut    StockTransfer[]    @relation("TransferFrom")
+  transfersIn     StockTransfer[]    @relation("TransferTo")
+  purchaseOrders  PurchaseOrder[]
+  receipts        GoodsReceipt[]
+  purchaseReturns PurchaseReturn[]
 
   @@map("locations")
 }
@@ -294,11 +314,13 @@ model Account {
   createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt   DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  parent       Account?      @relation("AccountTree", fields: [parentId], references: [id], onDelete: Restrict)
-  children     Account[]     @relation("AccountTree")
-  journalLines JournalLine[]
-  taxOutputFor TaxRate[]     @relation("TaxOutputAccount")
-  taxInputFor  TaxRate[]     @relation("TaxInputAccount")
+  parent           Account?              @relation("AccountTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children         Account[]             @relation("AccountTree")
+  journalLines     JournalLine[]
+  taxOutputFor     TaxRate[]             @relation("TaxOutputAccount")
+  taxInputFor      TaxRate[]             @relation("TaxInputAccount")
+  invoiceLines     SupplierInvoiceLine[]
+  supplierPayments SupplierPayment[]
 
   @@index([type])
   @@map("accounts")
@@ -553,6 +575,10 @@ model ProductVariant {
   movements       StockMovement[]
   adjustmentLines StockAdjustmentLine[]
   transferLines   StockTransferLine[]
+  poLines         PurchaseOrderLine[]
+  grnLines        GoodsReceiptLine[]
+  invoiceLines    SupplierInvoiceLine[]
+  returnLines     PurchaseReturnLine[]
 
   @@index([productId])
   @@map("product_variants")
@@ -603,8 +629,318 @@ model Supplier {
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
+  purchaseOrders PurchaseOrder[]
+  receipts       GoodsReceipt[]
+  invoices       SupplierInvoice[]
+  payments       SupplierPayment[]
+  returns        PurchaseReturn[]
+
   @@index([name])
   @@map("suppliers")
+}
+
+// ───────────────────────────── Purchasing ─────────────────────────────
+
+enum PurchaseOrderStatus {
+  DRAFT
+  APPROVED
+  PARTIALLY_RECEIVED
+  RECEIVED
+  CLOSED
+  CANCELLED
+}
+
+model PurchaseOrder {
+  id           String              @id @default(uuid()) @db.Uuid
+  number       String              @unique
+  supplierId   String              @map("supplier_id") @db.Uuid
+  locationId   String              @map("location_id") @db.Uuid
+  status       PurchaseOrderStatus @default(DRAFT)
+  orderDate    DateTime            @map("order_date") @db.Date
+  expectedDate DateTime?           @map("expected_date") @db.Date
+  note         String?
+  /// Net of VAT.
+  subtotal     Decimal             @default(0) @db.Decimal(18, 2)
+  taxTotal     Decimal             @default(0) @map("tax_total") @db.Decimal(18, 2)
+  total        Decimal             @default(0) @db.Decimal(18, 2)
+  createdById  String              @map("created_by_id") @db.Uuid
+  createdAt    DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+  approvedById String?             @map("approved_by_id") @db.Uuid
+  approvedAt   DateTime?           @map("approved_at") @db.Timestamptz(3)
+  /// Who closed or cancelled the order.
+  endedById    String?             @map("ended_by_id") @db.Uuid
+  endedAt      DateTime?           @map("ended_at") @db.Timestamptz(3)
+
+  supplier   Supplier            @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  location   Location            @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  createdBy  User                @relation("PoCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  approvedBy User?               @relation("PoApprovedBy", fields: [approvedById], references: [id], onDelete: Restrict)
+  endedBy    User?               @relation("PoEndedBy", fields: [endedById], references: [id], onDelete: Restrict)
+  lines      PurchaseOrderLine[]
+  receipts   GoodsReceipt[]
+
+  @@index([supplierId, createdAt])
+  @@index([status])
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderLine {
+  id          String  @id @default(uuid()) @db.Uuid
+  poId        String  @map("po_id") @db.Uuid
+  lineNo      Int     @map("line_no")
+  variantId   String  @map("variant_id") @db.Uuid
+  qtyOrdered  Decimal @map("qty_ordered") @db.Decimal(14, 3)
+  /// Maintained when goods receipts are posted. CHECK: ≤ qty_ordered.
+  qtyReceived Decimal @default(0) @map("qty_received") @db.Decimal(14, 3)
+  /// Excluding VAT.
+  unitCost    Decimal @map("unit_cost") @db.Decimal(18, 4)
+  taxRateId   String? @map("tax_rate_id") @db.Uuid
+  /// Snapshot of the rate when the line was written.
+  taxRate     Decimal @default(0) @map("tax_rate") @db.Decimal(7, 4)
+  netAmount   Decimal @map("net_amount") @db.Decimal(18, 2)
+
+  po       PurchaseOrder      @relation(fields: [poId], references: [id], onDelete: Cascade)
+  variant  ProductVariant     @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  tax      TaxRate?           @relation(fields: [taxRateId], references: [id], onDelete: Restrict)
+  grnLines GoodsReceiptLine[]
+
+  @@unique([poId, lineNo])
+  @@map("purchase_order_lines")
+}
+
+model GoodsReceipt {
+  id             String         @id @default(uuid()) @db.Uuid
+  number         String         @unique
+  supplierId     String         @map("supplier_id") @db.Uuid
+  locationId     String         @map("location_id") @db.Uuid
+  poId           String?        @map("po_id") @db.Uuid
+  status         DocumentStatus @default(DRAFT)
+  receivedDate   DateTime       @map("received_date") @db.Date
+  /// Supplier's delivery note / waybill number.
+  supplierRef    String?        @map("supplier_ref")
+  note           String?
+  totalValue     Decimal        @default(0) @map("total_value") @db.Decimal(18, 2)
+  journalEntryId String?        @map("journal_entry_id") @db.Uuid
+  createdById    String         @map("created_by_id") @db.Uuid
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+  postedById     String?        @map("posted_by_id") @db.Uuid
+  postedAt       DateTime?      @map("posted_at") @db.Timestamptz(3)
+  cancelledById  String?        @map("cancelled_by_id") @db.Uuid
+  cancelledAt    DateTime?      @map("cancelled_at") @db.Timestamptz(3)
+
+  supplier    Supplier           @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  location    Location           @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  po          PurchaseOrder?     @relation(fields: [poId], references: [id], onDelete: Restrict)
+  createdBy   User               @relation("GrnCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  postedBy    User?              @relation("GrnPostedBy", fields: [postedById], references: [id], onDelete: Restrict)
+  cancelledBy User?              @relation("GrnCancelledBy", fields: [cancelledById], references: [id], onDelete: Restrict)
+  lines       GoodsReceiptLine[]
+  returns     PurchaseReturn[]
+
+  @@index([supplierId, receivedDate])
+  @@index([status])
+  @@map("goods_receipts")
+}
+
+/// Matching counters (qty_invoiced, grni_cleared, returns) change after posting; the received
+/// quantity, cost and lot do not (trigger).
+model GoodsReceiptLine {
+  id                    String    @id @default(uuid()) @db.Uuid
+  receiptId             String    @map("receipt_id") @db.Uuid
+  lineNo                Int       @map("line_no")
+  poLineId              String?   @map("po_line_id") @db.Uuid
+  variantId             String    @map("variant_id") @db.Uuid
+  qty                   Decimal   @db.Decimal(14, 3)
+  /// Excluding VAT — the cost the stock is received at.
+  unitCost              Decimal   @map("unit_cost") @db.Decimal(18, 4)
+  taxRateId             String?   @map("tax_rate_id") @db.Uuid
+  taxRate               Decimal   @default(0) @map("tax_rate") @db.Decimal(7, 4)
+  lotNumber             String?   @map("lot_number")
+  mfgDate               DateTime? @map("mfg_date") @db.Date
+  expiryDate            DateTime? @map("expiry_date") @db.Date
+  /// Received value (= GRNI credit), set on posting.
+  value                 Decimal   @default(0) @db.Decimal(18, 2)
+  qtyInvoiced           Decimal   @default(0) @map("qty_invoiced") @db.Decimal(14, 3)
+  invoicedValue         Decimal   @default(0) @map("invoiced_value") @db.Decimal(18, 2)
+  /// GRNI cleared by invoices and by returns of uninvoiced goods. Outstanding GRNI = value − grni_cleared.
+  grniCleared           Decimal   @default(0) @map("grni_cleared") @db.Decimal(18, 2)
+  qtyReturnedUninvoiced Decimal   @default(0) @map("qty_returned_uninvoiced") @db.Decimal(14, 3)
+  qtyReturnedInvoiced   Decimal   @default(0) @map("qty_returned_invoiced") @db.Decimal(14, 3)
+
+  receipt      GoodsReceipt          @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  poLine       PurchaseOrderLine?    @relation(fields: [poLineId], references: [id], onDelete: Restrict)
+  variant      ProductVariant        @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  tax          TaxRate?              @relation(fields: [taxRateId], references: [id], onDelete: Restrict)
+  invoiceLines SupplierInvoiceLine[]
+  returnLines  PurchaseReturnLine[]
+
+  @@unique([receiptId, lineNo])
+  @@index([poLineId])
+  @@map("goods_receipt_lines")
+}
+
+enum SupplierInvoiceStatus {
+  DRAFT
+  POSTED
+  PARTIALLY_PAID
+  PAID
+  CANCELLED
+}
+
+model SupplierInvoice {
+  id             String                @id @default(uuid()) @db.Uuid
+  number         String                @unique
+  supplierId     String                @map("supplier_id") @db.Uuid
+  /// The supplier's own invoice number. UNIQUE per supplier: the same invoice cannot be entered twice.
+  supplierRef    String                @map("supplier_ref")
+  invoiceDate    DateTime              @map("invoice_date") @db.Date
+  dueDate        DateTime              @map("due_date") @db.Date
+  status         SupplierInvoiceStatus @default(DRAFT)
+  subtotal       Decimal               @default(0) @db.Decimal(18, 2)
+  taxTotal       Decimal               @default(0) @map("tax_total") @db.Decimal(18, 2)
+  total          Decimal               @default(0) @db.Decimal(18, 2)
+  amountPaid     Decimal               @default(0) @map("amount_paid") @db.Decimal(18, 2)
+  note           String?
+  journalEntryId String?               @map("journal_entry_id") @db.Uuid
+  createdById    String                @map("created_by_id") @db.Uuid
+  createdAt      DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+  postedById     String?               @map("posted_by_id") @db.Uuid
+  postedAt       DateTime?             @map("posted_at") @db.Timestamptz(3)
+  cancelledById  String?               @map("cancelled_by_id") @db.Uuid
+  cancelledAt    DateTime?             @map("cancelled_at") @db.Timestamptz(3)
+
+  supplier    Supplier                    @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  createdBy   User                        @relation("InvCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  postedBy    User?                       @relation("InvPostedBy", fields: [postedById], references: [id], onDelete: Restrict)
+  cancelledBy User?                       @relation("InvCancelledBy", fields: [cancelledById], references: [id], onDelete: Restrict)
+  lines       SupplierInvoiceLine[]
+  allocations SupplierPaymentAllocation[]
+
+  @@unique([supplierId, supplierRef])
+  @@index([status, dueDate])
+  @@map("supplier_invoices")
+}
+
+/// Either matches a goods-receipt line (stock) or charges an account directly (e.g. delivery, services).
+model SupplierInvoiceLine {
+  id          String  @id @default(uuid()) @db.Uuid
+  invoiceId   String  @map("invoice_id") @db.Uuid
+  lineNo      Int     @map("line_no")
+  grnLineId   String? @map("grn_line_id") @db.Uuid
+  variantId   String? @map("variant_id") @db.Uuid
+  accountId   String? @map("account_id") @db.Uuid
+  description String
+  qty         Decimal @db.Decimal(14, 3)
+  /// Excluding VAT, as charged by the supplier.
+  unitCost    Decimal @map("unit_cost") @db.Decimal(18, 4)
+  taxRateId   String? @map("tax_rate_id") @db.Uuid
+  taxRate     Decimal @default(0) @map("tax_rate") @db.Decimal(7, 4)
+  netAmount   Decimal @map("net_amount") @db.Decimal(18, 2)
+  taxAmount   Decimal @map("tax_amount") @db.Decimal(18, 2)
+
+  invoice SupplierInvoice   @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  grnLine GoodsReceiptLine? @relation(fields: [grnLineId], references: [id], onDelete: Restrict)
+  variant ProductVariant?   @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  account Account?          @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  tax     TaxRate?          @relation(fields: [taxRateId], references: [id], onDelete: Restrict)
+
+  @@unique([invoiceId, lineNo])
+  @@index([grnLineId])
+  @@map("supplier_invoice_lines")
+}
+
+/// Posted on creation and immutable (trigger). Amounts not allocated to invoices remain a credit with the supplier.
+model SupplierPayment {
+  id             String   @id @default(uuid()) @db.Uuid
+  number         String   @unique
+  supplierId     String   @map("supplier_id") @db.Uuid
+  paymentDate    DateTime @map("payment_date") @db.Date
+  amount         Decimal  @db.Decimal(18, 2)
+  unallocated    Decimal  @db.Decimal(18, 2)
+  /// The cash or bank account paid from.
+  accountId      String   @map("account_id") @db.Uuid
+  reference      String?
+  note           String?
+  journalEntryId String   @map("journal_entry_id") @db.Uuid
+  createdById    String   @map("created_by_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  supplier    Supplier                    @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  account     Account                     @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  createdBy   User                        @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  allocations SupplierPaymentAllocation[]
+
+  @@index([supplierId, paymentDate])
+  @@map("supplier_payments")
+}
+
+model SupplierPaymentAllocation {
+  id        String  @id @default(uuid()) @db.Uuid
+  paymentId String  @map("payment_id") @db.Uuid
+  invoiceId String  @map("invoice_id") @db.Uuid
+  amount    Decimal @db.Decimal(18, 2)
+
+  payment SupplierPayment @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  invoice SupplierInvoice @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+
+  @@unique([paymentId, invoiceId])
+  @@index([invoiceId])
+  @@map("supplier_payment_allocations")
+}
+
+model PurchaseReturn {
+  id             String         @id @default(uuid()) @db.Uuid
+  number         String         @unique
+  supplierId     String         @map("supplier_id") @db.Uuid
+  locationId     String         @map("location_id") @db.Uuid
+  receiptId      String         @map("receipt_id") @db.Uuid
+  status         DocumentStatus @default(DRAFT)
+  returnDate     DateTime       @map("return_date") @db.Date
+  reason         String?
+  note           String?
+  /// Debit-note value owed back by the supplier (invoiced quantities, incl. VAT). Uninvoiced returns only clear GRNI.
+  creditTotal    Decimal        @default(0) @map("credit_total") @db.Decimal(18, 2)
+  journalEntryId String?        @map("journal_entry_id") @db.Uuid
+  createdById    String         @map("created_by_id") @db.Uuid
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+  postedById     String?        @map("posted_by_id") @db.Uuid
+  postedAt       DateTime?      @map("posted_at") @db.Timestamptz(3)
+  cancelledById  String?        @map("cancelled_by_id") @db.Uuid
+  cancelledAt    DateTime?      @map("cancelled_at") @db.Timestamptz(3)
+
+  supplier    Supplier             @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  location    Location             @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  receipt     GoodsReceipt         @relation(fields: [receiptId], references: [id], onDelete: Restrict)
+  createdBy   User                 @relation("RetCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  postedBy    User?                @relation("RetPostedBy", fields: [postedById], references: [id], onDelete: Restrict)
+  cancelledBy User?                @relation("RetCancelledBy", fields: [cancelledById], references: [id], onDelete: Restrict)
+  lines       PurchaseReturnLine[]
+
+  @@index([supplierId, returnDate])
+  @@map("purchase_returns")
+}
+
+model PurchaseReturnLine {
+  id          String  @id @default(uuid()) @db.Uuid
+  returnId    String  @map("return_id") @db.Uuid
+  lineNo      Int     @map("line_no")
+  grnLineId   String  @map("grn_line_id") @db.Uuid
+  variantId   String  @map("variant_id") @db.Uuid
+  qty         Decimal @db.Decimal(14, 3)
+  /// Set on posting: stock value removed (at average cost) and supplier credit for this line.
+  stockValue  Decimal @default(0) @map("stock_value") @db.Decimal(18, 2)
+  creditValue Decimal @default(0) @map("credit_value") @db.Decimal(18, 2)
+
+  purchaseReturn PurchaseReturn   @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  grnLine        GoodsReceiptLine @relation(fields: [grnLineId], references: [id], onDelete: Restrict)
+  variant        ProductVariant   @relation(fields: [variantId], references: [id], onDelete: Restrict)
+
+  @@unique([returnId, lineNo])
+  @@map("purchase_return_lines")
 }
 
 // ───────────────────────────── Inventory ─────────────────────────────
@@ -668,25 +1004,25 @@ enum StockMovementType {
 
 /// The stock ledger. Append-only (trigger). Every quantity change has exactly one movement per batch touched.
 model StockMovement {
-  id             String            @id @default(uuid()) @db.Uuid
-  variantId      String            @map("variant_id") @db.Uuid
-  locationId     String            @map("location_id") @db.Uuid
-  batchId        String?           @map("batch_id") @db.Uuid
-  type           StockMovementType
+  id           String            @id @default(uuid()) @db.Uuid
+  variantId    String            @map("variant_id") @db.Uuid
+  locationId   String            @map("location_id") @db.Uuid
+  batchId      String?           @map("batch_id") @db.Uuid
+  type         StockMovementType
   /// Signed: positive in, negative out.
-  qtyChange      Decimal           @map("qty_change") @db.Decimal(14, 3)
-  unitCost       Decimal           @map("unit_cost") @db.Decimal(18, 4)
+  qtyChange    Decimal           @map("qty_change") @db.Decimal(14, 3)
+  unitCost     Decimal           @map("unit_cost") @db.Decimal(18, 4)
   /// Signed value moved; Σ total_cost per variant = its stock_value.
-  totalCost      Decimal           @map("total_cost") @db.Decimal(18, 2)
+  totalCost    Decimal           @map("total_cost") @db.Decimal(18, 2)
   /// Location balance after this movement.
-  qtyAfter       Decimal           @map("qty_after") @db.Decimal(14, 3)
-  avgCostAfter   Decimal           @map("avg_cost_after") @db.Decimal(18, 4)
-  sourceType     String            @map("source_type")
-  sourceId       String            @map("source_id")
-  sourceLineId   String?           @map("source_line_id")
-  note           String?
-  createdById    String            @map("created_by_id") @db.Uuid
-  createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  qtyAfter     Decimal           @map("qty_after") @db.Decimal(14, 3)
+  avgCostAfter Decimal           @map("avg_cost_after") @db.Decimal(18, 4)
+  sourceType   String            @map("source_type")
+  sourceId     String            @map("source_id")
+  sourceLineId String?           @map("source_line_id")
+  note         String?
+  createdById  String            @map("created_by_id") @db.Uuid
+  createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
 
   variant   ProductVariant  @relation(fields: [variantId], references: [id], onDelete: Restrict)
   location  Location        @relation(fields: [locationId], references: [id], onDelete: Restrict)

@@ -48,6 +48,14 @@ Request pipeline, in order (`src/app.ts`):
 
 Every call writes `stock_movements` rows (the append-only stock ledger). Documents (adjustments today; purchase receipts, sales and returns in later phases) run the engine and `postJournal()` in the same transaction, so stock and the ledger change together or not at all.
 
+## Purchasing
+
+`src/modules/purchasing/`: orders → receipts → supplier invoices → payments, plus returns, supplier statements and aged payables (rules in [ACCOUNTING_RULES.md §5a](ACCOUNTING_RULES.md)). Every state change locks the document row (`SELECT … FOR UPDATE`) before checking its status, so concurrent post/approve/cancel requests serialise; receipt lines and invoices are locked in id order when several are touched.
+
+### Idempotent requests
+
+`src/lib/idempotency.ts` — `withIdempotency(scope, key, request, run)`. The (scope, key) row is claimed in `idempotency_keys` before the work runs (unique constraint), so concurrent duplicates cannot both execute; a completed request's response is stored and replayed (header `Idempotent-Replayed: true`); reusing a key with a different body is a 409. Required on `POST /supplier-payments` and, in later phases, on sales and refunds. The back office generates one key per form instance.
+
 ## Files
 
 `POST /files/images` (multer, memory, size-limited) → magic-byte check with `file-type` (JPEG/PNG/WebP only) → `sharp` re-encode to WebP, max 1600 px, metadata stripped → stored under a server-generated key via the `FileStorage` interface (`LocalDiskStorage`; S3-compatible driver later). `GET /files/:id` serves public files (product images) without a session, private files only to signed-in staff, with `nosniff` and explicit content type.
@@ -79,6 +87,7 @@ Module layout: `src/modules/<name>/<name>.routes.ts` (+ controller, service, sch
 - Forms: react-hook-form + the shared Zod schemas; server validation errors are mapped back onto fields. Dialog forms mount on open, so each opening starts clean.
 - Phase 2 screens: Staff users (search, status filter, pagination, create/edit/disable, reset password), Roles & permissions (permission matrix by module, custom roles), Settings (business details, VAT-inclusive/exclusive pricing, tax rates, inventory rules, receipt text, fiscal year, locations).
 - Phase 3 screens: Products (search/filters), product editor (details, variants with cosmetics attributes and barcodes, images, archive), Catalogue setup (brands, categories, units), Suppliers, Stock levels (with stock-ledger ↔ GL reconciliation), Stock adjustments (draft → post), Transfers (draft → dispatch → receive), Expiry, Stock movements.
+- Phase 4 screens: Purchase orders (approve, receive, close), Goods received (from an order or direct; lots/expiry), Supplier invoices (match received goods, extra charges, live totals), Supplier payments (allocate oldest-first), Returns to suppliers, supplier account page with statement, Aged payables. Document lists share `DocumentList`.
 - `VariantPicker` is an accessible combobox: type to search, or scan — Enter on an exact barcode/SKU selects it.
 - Routes are code-split (`React.lazy`); libraries are in long-lived vendor chunks.
 - API calls go through `createApiClient` (`packages/shared`): same-origin `/api/v1`, `credentials: 'include'`, `X-CSRF-Token` on state-changing requests, typed `ApiError` from the error envelope.

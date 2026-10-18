@@ -56,6 +56,7 @@ Schema source: [`apps/api/prisma/schema.prisma`](../apps/api/prisma/schema.prism
 | 3 | Catalogue | `brands`, `categories` (tree), `units`, `products`, `product_variants`, `variant_barcodes`, `product_images` |
 | 3 | Suppliers | `suppliers` |
 | 3 | Inventory | `inventory_balances` (variant × location), `inventory_batches` (lots), `stock_movements` (ledger), `stock_adjustments` + `_lines`, `stock_transfers` + `_lines` |
+| 4 | Purchasing | `purchase_orders` + `_lines`, `goods_receipts` + `goods_receipt_lines` (with matching counters), `supplier_invoices` + `_lines`, `supplier_payments` + `supplier_payment_allocations`, `purchase_returns` + `_lines` |
 
 ### Inventory model
 
@@ -88,6 +89,15 @@ Defined in `prisma/migrations/20261018120100_phase2_integrity_guards/migration.s
 | `stock_adjustment_lines_guard_trg` / `stock_transfer_lines_guard_trg` | lines can change only while the document is DRAFT |
 | `product_variants_sku_chk` / `_prices_chk` / `_reorder_chk` | SKU format (upper-case); prices, costs and reorder levels ≥ 0 |
 | `products_expiry_needs_batch_chk` | expiry tracking requires batch tracking |
+| `po_lines_qty_chk` | received ≤ ordered |
+| `grn_lines_matching_chk` | invoiced + returned-before-invoice ≤ received; returned-after-invoice ≤ invoiced; 0 ≤ GRNI cleared ≤ value |
+| `goods_receipt_lines_guard_trg` | after posting only the matching counters may change; quantity, cost and lot are frozen |
+| `purchase_orders_guard_trg` / `purchase_order_lines_guard_trg` | once approved, supplier, location, amounts and lines are fixed (only received quantities change) |
+| `supplier_invoices_guard_trg` / `_lines_guard_trg` | once posted, only payment progress changes; lines are frozen |
+| `supplier_invoices` UNIQUE (`supplier_id`, `supplier_ref`) | the same supplier invoice cannot be entered twice |
+| `supplier_invoice_lines_target_chk` | a line matches received goods **or** charges an account |
+| `supplier_payments_append_only_trg` (+ allocations) | payments cannot be changed or deleted |
+| `supplier_invoices_amounts_chk` | 0 ≤ paid ≤ total |
 
 ## Sessions
 

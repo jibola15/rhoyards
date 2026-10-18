@@ -19,6 +19,11 @@ const envSchema = z.object({
     ),
   TRUST_PROXY: z.coerce.number().int().min(0).default(0),
   API_DOCS_ENABLED: booleanString.optional(),
+  DATABASE_URL: z.string().min(1).optional(),
+  SESSION_IDLE_MINUTES: z.coerce.number().int().min(5).max(24 * 60).default(30),
+  SESSION_ABSOLUTE_HOURS: z.coerce.number().int().min(1).max(72).default(12),
+  /** Login attempts allowed per IP per 15 minutes. */
+  LOGIN_RATE_LIMIT: z.coerce.number().int().min(1).default(10),
 });
 
 export type Env = Omit<z.infer<typeof envSchema>, 'API_DOCS_ENABLED'> & { API_DOCS_ENABLED: boolean };
@@ -32,6 +37,9 @@ export function loadEnv(source: Record<string, string | undefined> = process.env
     throw new Error(`Invalid environment configuration:\n${z.prettifyError(result.error)}`);
   }
   const env = result.data;
+  if (env.NODE_ENV !== 'test' && !env.DATABASE_URL) {
+    throw new Error('Invalid environment configuration:\nDATABASE_URL is required');
+  }
   return {
     ...env,
     // API docs default to on outside production.

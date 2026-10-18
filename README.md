@@ -2,7 +2,7 @@
 
 Inventory, in-store POS, online store, purchasing, expenses and double-entry accounting for a cosmetics retailer with one physical store and an online shop.
 
-> **Status:** Phase 1 (project setup) complete. See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) for the roadmap and decisions log.
+> **Status:** Phases 1–2 complete — project setup; database, migrations, staff authentication, roles & permissions, settings, audit log and the ledger posting engine. See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) for the roadmap and decisions log.
 
 ## Repository layout
 
@@ -18,17 +18,19 @@ Inventory, in-store POS, online store, purchasing, expenses and double-entry acc
 ## Requirements
 
 - Node.js 22+ and npm 10+
-- A Neon PostgreSQL project (required from Phase 2 — not needed to run Phase 1)
+- A Neon PostgreSQL project with **two databases**: one for development and one whose name contains `test` (e.g. `rhoyards_test`) for the automated tests. See [docs/DATABASE.md](docs/DATABASE.md).
 
 ## Getting started
 
 ```bash
 npm install
 cp apps/api/.env.example apps/api/.env   # PowerShell: Copy-Item apps/api/.env.example apps/api/.env
+# fill in DATABASE_URL, DIRECT_URL, TEST_DATABASE_URL, TEST_DIRECT_URL, SEED_OWNER_EMAIL, SEED_OWNER_PASSWORD
+npm run db:setup -w @rhoyards/api        # migrations + reference data + first owner account
 npm run dev
 ```
 
-`npm run dev` starts the API (port 4000) and both Vite dev servers. The Vite servers proxy `/api` to the API, so the browser always talks same-origin.
+`npm run dev` starts the API (port 4000) and both Vite dev servers. The Vite servers proxy `/api` to the API, so the browser always talks same-origin. Open http://localhost:5173 and sign in with the seeded owner; you will be asked to choose a new password.
 
 ## Scripts (run from the repo root)
 
@@ -38,7 +40,8 @@ npm run dev
 | `npm run build` | Production builds of all workspaces |
 | `npm run typecheck` | TypeScript checks in every workspace |
 | `npm run lint` | ESLint (flags `parseFloat` in money-handling code) |
-| `npm test` | All Vitest projects (shared, api, backoffice, storefront) |
+| `npm test` | All Vitest projects (shared, api, backoffice, storefront). API integration tests run against the test database and take several minutes over the network |
+| `npx vitest run --project backoffice` | Run a single project |
 | `npm run check` | typecheck + lint + test |
 
 ## Conventions
@@ -51,4 +54,6 @@ npm run dev
 
 - [Implementation plan & decisions](docs/IMPLEMENTATION_PLAN.md)
 - [Architecture](docs/ARCHITECTURE.md)
+- [Database](docs/DATABASE.md)
+- [Accounting rules](docs/ACCOUNTING_RULES.md)
 - API reference: run the API and open http://localhost:4000/api/docs

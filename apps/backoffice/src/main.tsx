@@ -1,13 +1,14 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { createBrowserRouter, RouterProvider } from 'react-router';
+import { Toaster } from '@rhoyards/ui';
+import { AuthProvider } from './auth/AuthProvider';
+import { createQueryClient } from './lib/query-client';
 import { routes } from './routes';
 import './index.css';
 
-const queryClient = new QueryClient({
-  defaultOptions: { queries: { staleTime: 15_000, refetchOnWindowFocus: false, retry: 1 } },
-});
+const queryClient = createQueryClient();
 const router = createBrowserRouter(routes);
 
 const root = document.getElementById('root');
@@ -16,7 +17,10 @@ if (!root) throw new Error('Root element #root not found');
 createRoot(root).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
+      <AuthProvider>
+        <RouterProvider router={router} />
+        <Toaster />
+      </AuthProvider>
     </QueryClientProvider>
   </StrictMode>,
 );

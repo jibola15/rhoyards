@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { createApp } from './app';
 import { loadEnv } from './config/env';
 import { createLogger } from './lib/logger';
+import { disconnectPrisma } from './lib/prisma';
 
 const env = loadEnv();
 const logger = createLogger(env);
@@ -14,11 +15,8 @@ const server = app.listen(env.PORT, () => {
 function shutdown(signal: string) {
   logger.info({ signal }, 'Shutting down');
   server.close((err) => {
-    if (err) {
-      logger.error({ err }, 'Error during shutdown');
-      process.exit(1);
-    }
-    process.exit(0);
+    if (err) logger.error({ err }, 'Error during shutdown');
+    void disconnectPrisma().finally(() => process.exit(err ? 1 : 0));
   });
   // Force-exit if connections do not drain in time.
   setTimeout(() => process.exit(1), 10_000).unref();

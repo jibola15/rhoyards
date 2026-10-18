@@ -1,31 +1,27 @@
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
-import { renderApp } from '../../test/render';
+import { describe, expect, it } from 'vitest';
+import { json, mockApi, renderApp, sessionFor } from '../../test/render';
 
 const healthy = () =>
-  new Response(
-    JSON.stringify({
-      data: { status: 'ok', service: 'rhoyards-api', version: '0.1.0', uptimeSeconds: 3725, time: new Date().toISOString() },
-    }),
-    { status: 200 },
-  );
+  json(200, { data: { status: 'ok', service: 'rhoyards-api', version: '0.1.0', uptimeSeconds: 3725, time: new Date().toISOString() } });
+const me = () => json(200, { data: sessionFor([]) });
 
 describe('SystemStatusPage', () => {
   it('shows live API details when the API responds', async () => {
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => healthy());
+    mockApi({ 'GET /auth/me': me, 'GET /health': healthy });
     renderApp('/');
     expect(await screen.findByText('Online')).toBeInTheDocument();
     expect(screen.getByText('0.1.0')).toBeInTheDocument();
     expect(screen.getByText('1h 2m')).toBeInTheDocument();
-    expect(globalThis.fetch).toHaveBeenCalledWith('/api/v1/health', expect.anything());
   });
 
   it('shows an error with a working retry when the API is down', async () => {
-    const fetchMock = vi
-      .spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(new Response('Bad gateway', { status: 502 }))
-      .mockResolvedValueOnce(healthy());
+    let calls = 0;
+    mockApi({
+      'GET /auth/me': me,
+      'GET /health': () => (++calls === 1 ? new Response('Bad gateway', { status: 502 }) : healthy()),
+    });
     const user = userEvent.setup();
     renderApp('/');
 
@@ -34,6 +30,6 @@ describe('SystemStatusPage', () => {
 
     await user.click(screen.getByRole('button', { name: 'Retry' }));
     expect(await screen.findByText('Online')).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(calls).toBe(2);
   });
 });

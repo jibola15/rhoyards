@@ -1,0 +1,380 @@
+// Rhoyards database schema (PostgreSQL on Neon).
+// Conventions: UUID primary keys, snake_case tables/columns, timestamptz, NUMERIC for money.
+// CHECK constraints and triggers that Prisma cannot express live in the migration SQL — see docs/DATABASE.md.
+
+generator client {
+  provider        = "prisma-client-js"
+  // Loads relations with SQL joins: one round trip per query, important with a remote Neon database.
+  previewFeatures = ["relationJoins"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ───────────────────────────── Identity & security ─────────────────────────────
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+}
+
+model User {
+  id                 String     @id @default(uuid()) @db.Uuid
+  email              String     @unique
+  passwordHash       String     @map("password_hash")
+  fullName           String     @map("full_name")
+  status             UserStatus @default(ACTIVE)
+  mustChangePassword Boolean    @default(false) @map("must_change_password")
+  failedLoginCount   Int        @default(0) @map("failed_login_count")
+  lockedUntil        DateTime?  @map("locked_until") @db.Timestamptz(3)
+  lastLoginAt        DateTime?  @map("last_login_at") @db.Timestamptz(3)
+  passwordChangedAt  DateTime   @default(now()) @map("password_changed_at") @db.Timestamptz(3)
+  createdById        String?    @map("created_by_id") @db.Uuid
+  createdAt          DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  createdBy      User?           @relation("UserCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  createdUsers   User[]          @relation("UserCreatedBy")
+  roles          UserRole[]      @relation("UserRoles")
+  rolesAssigned  UserRole[]      @relation("UserRoleAssignedBy")
+  locations      UserLocation[]
+  sessions       Session[]
+  auditLogs      AuditLog[]
+  journalCreated JournalEntry[]  @relation("JournalCreatedBy")
+  journalPosted  JournalEntry[]  @relation("JournalPostedBy")
+  settings       Setting[]
+
+  @@index([status])
+  @@map("users")
+}
+
+model Role {
+  id          String   @id @default(uuid()) @db.Uuid
+  code        String   @unique
+  name        String
+  description String?
+  isSystem    Boolean  @default(false) @map("is_system")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  permissions RolePermission[]
+  users       UserRole[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String @id @default(uuid()) @db.Uuid
+  code        String @unique
+  module      String
+  description String
+
+  roles RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String @map("role_id") @db.Uuid
+  permissionId String @map("permission_id") @db.Uuid
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@index([permissionId])
+  @@map("role_permissions")
+}
+
+model UserRole {
+  userId       String   @map("user_id") @db.Uuid
+  roleId       String   @map("role_id") @db.Uuid
+  assignedById String?  @map("assigned_by_id") @db.Uuid
+  assignedAt   DateTime @default(now()) @map("assigned_at") @db.Timestamptz(3)
+
+  user       User  @relation("UserRoles", fields: [userId], references: [id], onDelete: Cascade)
+  role       Role  @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  assignedBy User? @relation("UserRoleAssignedBy", fields: [assignedById], references: [id], onDelete: Restrict)
+
+  @@id([userId, roleId])
+  @@index([roleId])
+  @@map("user_roles")
+}
+
+model UserLocation {
+  userId     String @map("user_id") @db.Uuid
+  locationId String @map("location_id") @db.Uuid
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  location Location @relation(fields: [locationId], references: [id], onDelete: Restrict)
+
+  @@id([userId, locationId])
+  @@index([locationId])
+  @@map("user_locations")
+}
+
+enum SessionRealm {
+  STAFF
+  CUSTOMER
+}
+
+model Session {
+  id            String       @id @default(uuid()) @db.Uuid
+  tokenHash     String       @unique @map("token_hash")
+  realm         SessionRealm
+  userId        String?      @map("user_id") @db.Uuid
+  csrfToken     String       @map("csrf_token")
+  ip            String?
+  userAgent     String?      @map("user_agent")
+  createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  lastSeenAt    DateTime     @default(now()) @map("last_seen_at") @db.Timestamptz(3)
+  idleExpiresAt DateTime     @map("idle_expires_at") @db.Timestamptz(3)
+  expiresAt     DateTime     @map("expires_at") @db.Timestamptz(3)
+  revokedAt     DateTime?    @map("revoked_at") @db.Timestamptz(3)
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+/// Append-only (enforced by trigger). Written in the same transaction as the change it records.
+model AuditLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  actorUserId String?  @map("actor_user_id") @db.Uuid
+  action      String
+  entityType  String   @map("entity_type")
+  entityId    String?  @map("entity_id")
+  before      Json?
+  after       Json?
+  ip          String?
+  requestId   String?  @map("request_id")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  actor User? @relation(fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@index([entityType, entityId])
+  @@index([actorUserId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// ───────────────────────────── Settings & configuration ─────────────────────────────
+
+model Setting {
+  key         String   @id
+  value       Json
+  updatedById String?  @map("updated_by_id") @db.Uuid
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  updatedBy User? @relation(fields: [updatedById], references: [id], onDelete: Restrict)
+
+  @@map("settings")
+}
+
+enum TaxKind {
+  STANDARD
+  ZERO_RATED
+  EXEMPT
+}
+
+model TaxRate {
+  id              String   @id @default(uuid()) @db.Uuid
+  code            String   @unique
+  name            String
+  kind            TaxKind
+  /// Percentage, e.g. 7.5000. CHECK: 0–100, and 0 unless STANDARD.
+  rate            Decimal  @db.Decimal(7, 4)
+  outputAccountId String?  @map("output_account_id") @db.Uuid
+  inputAccountId  String?  @map("input_account_id") @db.Uuid
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  outputAccount Account? @relation("TaxOutputAccount", fields: [outputAccountId], references: [id], onDelete: Restrict)
+  inputAccount  Account? @relation("TaxInputAccount", fields: [inputAccountId], references: [id], onDelete: Restrict)
+
+  @@map("tax_rates")
+}
+
+model DocumentSequence {
+  key       String @id
+  prefix    String
+  nextValue Int    @default(1) @map("next_value")
+  padding   Int    @default(6)
+
+  @@map("document_sequences")
+}
+
+model IdempotencyKey {
+  id          String   @id @default(uuid()) @db.Uuid
+  scope       String
+  key         String
+  requestHash String   @map("request_hash")
+  statusCode  Int?     @map("status_code")
+  response    Json?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  expiresAt   DateTime @map("expires_at") @db.Timestamptz(3)
+
+  @@unique([scope, key])
+  @@index([expiresAt])
+  @@map("idempotency_keys")
+}
+
+// ───────────────────────────── Locations ─────────────────────────────
+
+enum LocationType {
+  STORE
+  WAREHOUSE
+}
+
+model Location {
+  id                 String       @id @default(uuid()) @db.Uuid
+  code               String       @unique
+  name               String
+  type               LocationType
+  isPosEnabled       Boolean      @default(false) @map("is_pos_enabled")
+  isOnlineFulfilment Boolean      @default(false) @map("is_online_fulfilment")
+  address            String?
+  phone              String?
+  isActive           Boolean      @default(true) @map("is_active")
+  createdAt          DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  users        UserLocation[]
+  journalLines JournalLine[]
+
+  @@map("locations")
+}
+
+// ───────────────────────────── Accounting core ─────────────────────────────
+
+enum AccountType {
+  ASSET
+  LIABILITY
+  EQUITY
+  INCOME
+  EXPENSE
+}
+
+model Account {
+  id          String      @id @default(uuid()) @db.Uuid
+  code        String      @unique
+  name        String
+  type        AccountType
+  subtype     String?
+  description String?
+  parentId    String?     @map("parent_id") @db.Uuid
+  isPostable  Boolean     @default(true) @map("is_postable")
+  /// Stable key used by posting rules (e.g. INVENTORY, AR, VAT_OUTPUT). Never reused.
+  systemKey   String?     @unique @map("system_key")
+  isActive    Boolean     @default(true) @map("is_active")
+  createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  parent        Account?      @relation("AccountTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children      Account[]     @relation("AccountTree")
+  journalLines  JournalLine[]
+  taxOutputFor  TaxRate[]     @relation("TaxOutputAccount")
+  taxInputFor   TaxRate[]     @relation("TaxInputAccount")
+
+  @@index([type])
+  @@map("accounts")
+}
+
+enum PeriodStatus {
+  OPEN
+  CLOSED
+}
+
+model FiscalYear {
+  id        String       @id @default(uuid()) @db.Uuid
+  name      String       @unique
+  startDate DateTime     @map("start_date") @db.Date
+  endDate   DateTime     @map("end_date") @db.Date
+  status    PeriodStatus @default(OPEN)
+  createdAt DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  periods AccountingPeriod[]
+
+  @@map("fiscal_years")
+}
+
+model AccountingPeriod {
+  id           String       @id @default(uuid()) @db.Uuid
+  fiscalYearId String       @map("fiscal_year_id") @db.Uuid
+  name         String
+  startDate    DateTime     @map("start_date") @db.Date
+  endDate      DateTime     @map("end_date") @db.Date
+  status       PeriodStatus @default(OPEN)
+  closedAt     DateTime?    @map("closed_at") @db.Timestamptz(3)
+  closedById   String?      @map("closed_by_id") @db.Uuid
+
+  fiscalYear FiscalYear     @relation(fields: [fiscalYearId], references: [id], onDelete: Restrict)
+  entries    JournalEntry[]
+
+  @@unique([fiscalYearId, startDate])
+  @@index([startDate, endDate])
+  @@map("accounting_periods")
+}
+
+enum JournalStatus {
+  DRAFT
+  POSTED
+}
+
+/// POSTED entries are immutable (trigger). Corrections are made by reversal (reversal_of_id is UNIQUE).
+model JournalEntry {
+  id           String        @id @default(uuid()) @db.Uuid
+  number       String?       @unique
+  entryDate    DateTime      @map("entry_date") @db.Date
+  periodId     String        @map("period_id") @db.Uuid
+  sourceType   String        @map("source_type")
+  sourceId     String?       @map("source_id")
+  /// Idempotency key for automatic postings, e.g. "SALE:<id>". UNIQUE prevents double posting.
+  postingKey   String?       @unique @map("posting_key")
+  description  String
+  status       JournalStatus @default(DRAFT)
+  reversalOfId String?       @unique @map("reversal_of_id") @db.Uuid
+  totalDebit   Decimal       @default(0) @map("total_debit") @db.Decimal(18, 2)
+  totalCredit  Decimal       @default(0) @map("total_credit") @db.Decimal(18, 2)
+  createdById  String        @map("created_by_id") @db.Uuid
+  createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  postedById   String?       @map("posted_by_id") @db.Uuid
+  postedAt     DateTime?     @map("posted_at") @db.Timestamptz(3)
+
+  period     AccountingPeriod @relation(fields: [periodId], references: [id], onDelete: Restrict)
+  reversalOf JournalEntry?    @relation("JournalReversal", fields: [reversalOfId], references: [id], onDelete: Restrict)
+  reversedBy JournalEntry?    @relation("JournalReversal")
+  createdBy  User             @relation("JournalCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  postedBy   User?            @relation("JournalPostedBy", fields: [postedById], references: [id], onDelete: Restrict)
+  lines      JournalLine[]
+
+  @@index([entryDate])
+  @@index([sourceType, sourceId])
+  @@map("journal_entries")
+}
+
+/// CHECK: debit >= 0, credit >= 0, exactly one of them non-zero.
+model JournalLine {
+  id         String  @id @default(uuid()) @db.Uuid
+  entryId    String  @map("entry_id") @db.Uuid
+  lineNo     Int     @map("line_no")
+  accountId  String  @map("account_id") @db.Uuid
+  debit      Decimal @default(0) @db.Decimal(18, 2)
+  credit     Decimal @default(0) @db.Decimal(18, 2)
+  memo       String?
+  locationId String? @map("location_id") @db.Uuid
+
+  entry    JournalEntry @relation(fields: [entryId], references: [id], onDelete: Restrict)
+  account  Account      @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  location Location?    @relation(fields: [locationId], references: [id], onDelete: Restrict)
+
+  @@unique([entryId, lineNo])
+  @@index([accountId])
+  @@map("journal_lines")
+}

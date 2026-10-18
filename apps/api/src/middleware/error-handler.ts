@@ -1,5 +1,6 @@
 import type { ErrorRequestHandler, RequestHandler } from 'express';
 import type { Logger } from 'pino';
+import { Prisma } from '@prisma/client';
 import { ZodError } from 'zod';
 import { ErrorCode, type ErrorBody } from '@rhoyards/shared';
 import { AppError } from '../lib/errors';
@@ -17,6 +18,13 @@ function body(code: string, message: string, requestId: unknown, details?: unkno
 
 export const notFoundHandler: RequestHandler = (req, res) => {
   res.status(404).json(body(ErrorCode.NOT_FOUND, `Route ${req.method} ${req.path} not found`, req.id));
+};
+
+/** Constraint violations that reach the database (e.g. concurrent duplicates) become client errors. */
+const PRISMA_ERRORS: Record<string, { status: number; code: ErrorCode; message: string }> = {
+  P2002: { status: 409, code: ErrorCode.CONFLICT, message: 'A record with these values already exists' },
+  P2003: { status: 409, code: ErrorCode.CONFLICT, message: 'A related record is missing or still in use' },
+  P2025: { status: 404, code: ErrorCode.NOT_FOUND, message: 'Record not found' },
 };
 
 interface BodyParserError {
@@ -40,6 +48,17 @@ export function errorHandler(logger: Logger): ErrorRequestHandler {
       const details = err.issues.map((issue) => ({ path: issue.path.join('.'), message: issue.message }));
       res.status(400).json(body(ErrorCode.VALIDATION_ERROR, 'Request validation failed', req.id, details));
       return;
+    }
+
+    if (err instanceof Prisma.PrismaClientKnownRequestError) {
+      const mapped = PRISMA_ERRORS[err.code];
+      if (mapped) {
+        const target = (err.meta?.target as string[] | string | undefined) ?? undefined;
+        res
+          .status(mapped.status)
+          .json(body(mapped.code, mapped.message, req.id, target ? { fields: target } : undefined));
+        return;
+      }
     }
 
     const parserType = (err as BodyParserError | null)?.type;

@@ -1,7 +1,8 @@
 import { NavLink } from 'react-router';
 import { PanelLeftClose, PanelLeftOpen, X } from 'lucide-react';
 import { Button, cn } from '@rhoyards/ui';
-import { navGroups } from '../nav';
+import { useAuth } from '../../auth/AuthProvider';
+import { visibleNav } from '../nav';
 
 interface SidebarProps {
   collapsed: boolean;
@@ -11,6 +12,8 @@ interface SidebarProps {
 }
 
 export function Sidebar({ collapsed, onToggleCollapsed, mobileOpen, onCloseMobile }: SidebarProps) {
+  const { can } = useAuth();
+  const navGroups = visibleNav(can);
   return (
     <>
       {mobileOpen && (

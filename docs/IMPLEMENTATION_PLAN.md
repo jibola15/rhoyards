@@ -10,6 +10,9 @@ Date: 2026-10-18
 | 2026-10-18 | Business is **VAT-registered**; users choose whether prices **include or exclude VAT** | `prices_include_tax` setting (business default) + per-product tax rate (standard / zero-rated / exempt). Tax is always computed and posted to VAT output |
 | 2026-10-18 | **Online revenue recognised when payment is confirmed** | On verified payment: create `sale(channel=ONLINE)`, issue stock, post revenue + COGS. No customer-deposit stage |
 | 2026-10-18 | **One physical store** | Seed a single STORE location that also fulfils online orders. Schema remains multi-location capable (a warehouse can be added later) |
+| 2026-10-18 | Schema delivered **incrementally per phase** (Phase 2: identity, settings, locations, accounting core) rather than all tables up front | Each phase adds its tables in its own migration; §4 remains the target design |
+| 2026-10-18 | Tests use a **separate Neon database** (`rhoyards_test`), not a schema | Schema isolation via `?schema=` is unsafe behind Neon's PgBouncer pooler (it caused a test run to truncate dev data during Phase 2). Guards added; see DATABASE.md |
+| 2026-10-18 | Posting engine and ledger triggers built in Phase 2 (ahead of Phase 6 accounting UI) | Phases 3–5 post stock and sales through it from the start |
 
 ---
 

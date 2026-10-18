@@ -1,0 +1,220 @@
+import type { Prisma } from '@prisma/client';
+import {
+  OWNER_ROLE,
+  type CreateUserInput,
+  type UpdateUserInput,
+  type UserSummary,
+  type userListQuerySchema,
+} from '@rhoyards/shared';
+import type { z } from 'zod';
+import { writeAudit, type RequestContext } from '../../lib/audit';
+import { AppError, businessRule, conflict, forbidden, notFound } from '../../lib/errors';
+import { orderBy, pageArgs } from '../../lib/pagination';
+import { getPrisma, transaction, type Db } from '../../lib/prisma';
+import type { AuthContext } from '../auth/auth.types';
+import { hashPassword } from '../auth/password';
+import { revokeUserSessions } from '../auth/session.service';
+
+const summarySelect = {
+  id: true,
+  email: true,
+  fullName: true,
+  status: true,
+  mustChangePassword: true,
+  lastLoginAt: true,
+  createdAt: true,
+  roles: { select: { role: { select: { id: true, code: true, name: true } } } },
+  locations: { select: { location: { select: { id: true, code: true, name: true } } } },
+} satisfies Prisma.UserSelect;
+
+type UserRow = Prisma.UserGetPayload<{ select: typeof summarySelect }>;
+
+function toSummary(u: UserRow): UserSummary {
+  return {
+    id: u.id,
+    email: u.email,
+    fullName: u.fullName,
+    status: u.status,
+    mustChangePassword: u.mustChangePassword,
+    lastLoginAt: u.lastLoginAt?.toISOString() ?? null,
+    createdAt: u.createdAt.toISOString(),
+    roles: u.roles.map((r) => r.role).sort((a, b) => a.name.localeCompare(b.name)),
+    locations: u.locations.map((l) => l.location),
+  };
+}
+
+const isOwner = (auth: AuthContext) => auth.user.roles.some((r) => r.code === OWNER_ROLE);
+
+export async function listUsers(query: z.infer<typeof userListQuerySchema>) {
+  const where: Prisma.UserWhereInput = {
+    ...(query.q
+      ? {
+          OR: [
+            { fullName: { contains: query.q, mode: 'insensitive' } },
+            { email: { contains: query.q, mode: 'insensitive' } },
+          ],
+        }
+      : {}),
+    ...(query.status ? { status: query.status } : {}),
+    ...(query.roleId ? { roles: { some: { roleId: query.roleId } } } : {}),
+  };
+  const prisma = getPrisma();
+  const [rows, total] = await Promise.all([
+    prisma.user.findMany({
+      where,
+      select: summarySelect,
+      orderBy: orderBy(
+        query.sort,
+        {
+          fullName: (d) => ({ fullName: d }),
+          email: (d) => ({ email: d }),
+          createdAt: (d) => ({ createdAt: d }),
+          lastLoginAt: (d) => ({ lastLoginAt: { sort: d, nulls: 'last' } }),
+        },
+        { fullName: 'asc' },
+      ),
+      ...pageArgs(query),
+    }),
+    prisma.user.count({ where }),
+  ]);
+  return { rows: rows.map(toSummary), total };
+}
+
+export async function getUser(id: string, db: Db = getPrisma()): Promise<UserSummary> {
+  const user = await db.user.findUnique({ where: { id }, select: summarySelect });
+  if (!user) throw notFound('User');
+  return toSummary(user);
+}
+
+/**
+ * Loads the requested roles and blocks privilege escalation: a non-owner may only assign roles
+ * whose permissions they hold themselves, and only an owner may grant the Owner role.
+ */
+async function resolveRoles(db: Db, roleIds: string[], actor: AuthContext) {
+  const roles = await db.role.findMany({
+    where: { id: { in: roleIds } },
+    include: { permissions: { select: { permission: { select: { code: true } } } } },
+  });
+  if (roles.length !== new Set(roleIds).size) {
+    throw new AppError(400, 'VALIDATION_ERROR', 'One or more roles do not exist', { field: 'roleIds' });
+  }
+  if (!isOwner(actor)) {
+    for (const role of roles) {
+      if (role.code === OWNER_ROLE) throw forbidden('Only an owner can grant the Owner role');
+      const exceeds = role.permissions.some((p) => !actor.permissions.has(p.permission.code));
+      if (exceeds) throw forbidden(`You cannot assign the ${role.name} role because it has permissions you do not hold`);
+    }
+  }
+  return roles;
+}
+
+async function assertLocations(db: Db, locationIds: string[]) {
+  const count = await db.location.count({ where: { id: { in: locationIds } } });
+  if (count !== new Set(locationIds).size) {
+    throw new AppError(400, 'VALIDATION_ERROR', 'One or more locations do not exist', { field: 'locationIds' });
+  }
+}
+
+/** Serialises changes that could affect the set of active owners (prevents losing the last owner under concurrency). */
+async function lockOwnerRole(tx: Prisma.TransactionClient) {
+  await tx.$queryRaw`SELECT "id" FROM "roles" WHERE "code" = ${OWNER_ROLE} FOR UPDATE`;
+}
+
+export async function createUser(input: CreateUserInput, actor: AuthContext, ctx: RequestContext) {
+  const passwordHash = await hashPassword(input.password);
+  return transaction(async (tx) => {
+    if (await tx.user.findUnique({ where: { email: input.email }, select: { id: true } })) {
+      throw conflict('A user with this email already exists', { field: 'email' });
+    }
+    await resolveRoles(tx, input.roleIds, actor);
+    await assertLocations(tx, input.locationIds);
+
+    const created = await tx.user.create({
+      data: {
+        email: input.email,
+        fullName: input.fullName,
+        passwordHash,
+        // The administrator chose this password, so the user must replace it at first login.
+        mustChangePassword: true,
+        createdById: actor.user.id,
+        roles: { create: [...new Set(input.roleIds)].map((roleId) => ({ roleId, assignedById: actor.user.id })) },
+        locations: { create: [...new Set(input.locationIds)].map((locationId) => ({ locationId })) },
+      },
+      select: summarySelect,
+    });
+    const summary = toSummary(created);
+    await writeAudit(tx, ctx, { action: 'user.created', entityType: 'user', entityId: created.id, after: summary });
+    return summary;
+  });
+}
+
+export async function updateUser(id: string, input: UpdateUserInput, actor: AuthContext, ctx: RequestContext) {
+  return transaction(async (tx) => {
+    await lockOwnerRole(tx);
+    const before = await getUser(id, tx);
+    const wasActiveOwner = before.status === 'ACTIVE' && before.roles.some((r) => r.code === OWNER_ROLE);
+
+    if (input.status === 'DISABLED' && id === actor.user.id) {
+      throw businessRule('You cannot disable your own account');
+    }
+
+    if (before.roles.some((r) => r.code === OWNER_ROLE) && !isOwner(actor)) {
+      throw forbidden('Only an owner can change an owner account');
+    }
+    let nextRoleCodes = before.roles.map((r) => r.code);
+    if (input.roleIds) {
+      const roles = await resolveRoles(tx, input.roleIds, actor);
+      nextRoleCodes = roles.map((r) => r.code);
+    }
+    if (input.locationIds) await assertLocations(tx, input.locationIds);
+
+    const willBeActiveOwner = (input.status ?? before.status) === 'ACTIVE' && nextRoleCodes.includes(OWNER_ROLE);
+    if (wasActiveOwner && !willBeActiveOwner) {
+      const otherOwners = await tx.user.count({
+        where: { id: { not: id }, status: 'ACTIVE', roles: { some: { role: { code: OWNER_ROLE } } } },
+      });
+      if (otherOwners === 0) throw businessRule('At least one active owner account is required');
+    }
+
+    await tx.user.update({
+      where: { id },
+      data: {
+        ...(input.fullName !== undefined ? { fullName: input.fullName } : {}),
+        ...(input.status !== undefined ? { status: input.status } : {}),
+      },
+    });
+    if (input.roleIds) {
+      await tx.userRole.deleteMany({ where: { userId: id } });
+      await tx.userRole.createMany({
+        data: [...new Set(input.roleIds)].map((roleId) => ({ userId: id, roleId, assignedById: actor.user.id })),
+      });
+    }
+    if (input.locationIds) {
+      await tx.userLocation.deleteMany({ where: { userId: id } });
+      await tx.userLocation.createMany({ data: [...new Set(input.locationIds)].map((locationId) => ({ userId: id, locationId })) });
+    }
+    if (input.status === 'DISABLED' && before.status !== 'DISABLED') {
+      await revokeUserSessions(tx, id);
+    }
+
+    const after = await getUser(id, tx);
+    await writeAudit(tx, ctx, { action: 'user.updated', entityType: 'user', entityId: id, before, after });
+    return after;
+  });
+}
+
+export async function resetUserPassword(id: string, newPassword: string, actor: AuthContext, ctx: RequestContext) {
+  const passwordHash = await hashPassword(newPassword);
+  await transaction(async (tx) => {
+    const target = await getUser(id, tx);
+    if (target.roles.some((r) => r.code === OWNER_ROLE) && !isOwner(actor)) {
+      throw forbidden("Only an owner can reset an owner's password");
+    }
+    await tx.user.update({
+      where: { id },
+      data: { passwordHash, mustChangePassword: true, failedLoginCount: 0, lockedUntil: null, passwordChangedAt: new Date() },
+    });
+    await revokeUserSessions(tx, id);
+    await writeAudit(tx, ctx, { action: 'user.password_reset', entityType: 'user', entityId: id });
+  });
+}

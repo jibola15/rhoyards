@@ -36,16 +36,27 @@ model User {
   createdAt          DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt          DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  createdBy      User?           @relation("UserCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
-  createdUsers   User[]          @relation("UserCreatedBy")
-  roles          UserRole[]      @relation("UserRoles")
-  rolesAssigned  UserRole[]      @relation("UserRoleAssignedBy")
+  createdBy      User?          @relation("UserCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  createdUsers   User[]         @relation("UserCreatedBy")
+  roles          UserRole[]     @relation("UserRoles")
+  rolesAssigned  UserRole[]     @relation("UserRoleAssignedBy")
   locations      UserLocation[]
   sessions       Session[]
   auditLogs      AuditLog[]
-  journalCreated JournalEntry[]  @relation("JournalCreatedBy")
-  journalPosted  JournalEntry[]  @relation("JournalPostedBy")
+  journalCreated JournalEntry[] @relation("JournalCreatedBy")
+  journalPosted  JournalEntry[] @relation("JournalPostedBy")
   settings       Setting[]
+
+  filesUploaded        File[]
+  productsCreated      Product[]
+  stockMovements       StockMovement[]
+  adjustmentsCreated   StockAdjustment[] @relation("AdjustmentCreatedBy")
+  adjustmentsPosted    StockAdjustment[] @relation("AdjustmentPostedBy")
+  adjustmentsCancelled StockAdjustment[] @relation("AdjustmentCancelledBy")
+  transfersCreated     StockTransfer[]   @relation("TransferCreatedBy")
+  transfersDispatched  StockTransfer[]   @relation("TransferDispatchedBy")
+  transfersReceived    StockTransfer[]   @relation("TransferReceivedBy")
+  transfersCancelled   StockTransfer[]   @relation("TransferCancelledBy")
 
   @@index([status])
   @@map("users")
@@ -195,8 +206,9 @@ model TaxRate {
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  outputAccount Account? @relation("TaxOutputAccount", fields: [outputAccountId], references: [id], onDelete: Restrict)
-  inputAccount  Account? @relation("TaxInputAccount", fields: [inputAccountId], references: [id], onDelete: Restrict)
+  outputAccount Account?  @relation("TaxOutputAccount", fields: [outputAccountId], references: [id], onDelete: Restrict)
+  inputAccount  Account?  @relation("TaxInputAccount", fields: [inputAccountId], references: [id], onDelete: Restrict)
+  products      Product[]
 
   @@map("tax_rates")
 }
@@ -247,6 +259,12 @@ model Location {
 
   users        UserLocation[]
   journalLines JournalLine[]
+  balances     InventoryBalance[]
+  batches      InventoryBatch[]
+  movements    StockMovement[]
+  adjustments  StockAdjustment[]
+  transfersOut StockTransfer[]    @relation("TransferFrom")
+  transfersIn  StockTransfer[]    @relation("TransferTo")
 
   @@map("locations")
 }
@@ -276,11 +294,11 @@ model Account {
   createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt   DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  parent        Account?      @relation("AccountTree", fields: [parentId], references: [id], onDelete: Restrict)
-  children      Account[]     @relation("AccountTree")
-  journalLines  JournalLine[]
-  taxOutputFor  TaxRate[]     @relation("TaxOutputAccount")
-  taxInputFor   TaxRate[]     @relation("TaxInputAccount")
+  parent       Account?      @relation("AccountTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children     Account[]     @relation("AccountTree")
+  journalLines JournalLine[]
+  taxOutputFor TaxRate[]     @relation("TaxOutputAccount")
+  taxInputFor  TaxRate[]     @relation("TaxInputAccount")
 
   @@index([type])
   @@map("accounts")
@@ -377,4 +395,421 @@ model JournalLine {
   @@unique([entryId, lineNo])
   @@index([accountId])
   @@map("journal_lines")
+}
+
+// ───────────────────────────── Files ─────────────────────────────
+
+enum FileVisibility {
+  PUBLIC
+  PRIVATE
+}
+
+/// Uploaded files. Images are re-encoded on upload; the stored bytes never come straight from the client.
+model File {
+  id           String         @id @default(uuid()) @db.Uuid
+  storageKey   String         @unique @map("storage_key")
+  originalName String         @map("original_name")
+  mimeType     String         @map("mime_type")
+  sizeBytes    Int            @map("size_bytes")
+  sha256       String
+  width        Int?
+  height       Int?
+  visibility   FileVisibility @default(PRIVATE)
+  uploadedById String         @map("uploaded_by_id") @db.Uuid
+  createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  uploadedBy    User           @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
+  productImages ProductImage[]
+
+  @@map("files")
+}
+
+// ───────────────────────────── Catalogue ─────────────────────────────
+
+model Brand {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @unique
+  slug        String   @unique
+  description String?
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  products Product[]
+
+  @@map("brands")
+}
+
+model Category {
+  id          String   @id @default(uuid()) @db.Uuid
+  parentId    String?  @map("parent_id") @db.Uuid
+  name        String
+  slug        String   @unique
+  description String?
+  sortOrder   Int      @default(0) @map("sort_order")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  parent   Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children Category[] @relation("CategoryTree")
+  products Product[]
+
+  @@index([parentId])
+  @@map("categories")
+}
+
+model Unit {
+  id             String   @id @default(uuid()) @db.Uuid
+  code           String   @unique
+  name           String
+  allowsFraction Boolean  @default(false) @map("allows_fraction")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  products       Product[]
+  volumeVariants ProductVariant[]
+
+  @@map("units")
+}
+
+enum ProductStatus {
+  DRAFT
+  ACTIVE
+  DISCONTINUED
+}
+
+model Product {
+  id              String        @id @default(uuid()) @db.Uuid
+  name            String
+  slug            String        @unique
+  brandId         String?       @map("brand_id") @db.Uuid
+  categoryId      String?       @map("category_id") @db.Uuid
+  unitId          String        @map("unit_id") @db.Uuid
+  taxRateId       String        @map("tax_rate_id") @db.Uuid
+  description     String?
+  /// Expiry-tracked products are always batch-tracked (a batch carries the expiry date).
+  isExpiryTracked Boolean       @default(false) @map("is_expiry_tracked")
+  isBatchTracked  Boolean       @default(false) @map("is_batch_tracked")
+  status          ProductStatus @default(ACTIVE)
+  onlineVisible   Boolean       @default(false) @map("online_visible")
+  archivedAt      DateTime?     @map("archived_at") @db.Timestamptz(3)
+  createdById     String        @map("created_by_id") @db.Uuid
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  brand     Brand?           @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  category  Category?        @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  unit      Unit             @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  taxRate   TaxRate          @relation(fields: [taxRateId], references: [id], onDelete: Restrict)
+  createdBy User             @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  variants  ProductVariant[]
+  images    ProductImage[]
+
+  @@index([brandId])
+  @@index([categoryId])
+  @@index([status])
+  @@map("products")
+}
+
+enum VariantStatus {
+  ACTIVE
+  DISCONTINUED
+}
+
+/// Every sellable item. stock_qty / stock_value are company-wide totals maintained by the inventory
+/// engine (moving weighted-average cost: avg_cost = stock_value / stock_qty).
+model ProductVariant {
+  id             String        @id @default(uuid()) @db.Uuid
+  productId      String        @map("product_id") @db.Uuid
+  sku            String        @unique
+  name           String
+  shade          String?
+  colour         String?
+  tone           String?
+  size           String?
+  volumeValue    Decimal?      @map("volume_value") @db.Decimal(12, 3)
+  volumeUnitId   String?       @map("volume_unit_id") @db.Uuid
+  sellingPrice   Decimal       @map("selling_price") @db.Decimal(18, 2)
+  compareAtPrice Decimal?      @map("compare_at_price") @db.Decimal(18, 2)
+  /// Reference cost for planning only; stock valuation uses avg_cost.
+  standardCost   Decimal?      @map("standard_cost") @db.Decimal(18, 4)
+  avgCost        Decimal       @default(0) @map("avg_cost") @db.Decimal(18, 4)
+  stockQty       Decimal       @default(0) @map("stock_qty") @db.Decimal(14, 3)
+  stockValue     Decimal       @default(0) @map("stock_value") @db.Decimal(18, 2)
+  reorderLevel   Decimal       @default(0) @map("reorder_level") @db.Decimal(14, 3)
+  reorderQty     Decimal       @default(0) @map("reorder_qty") @db.Decimal(14, 3)
+  status         VariantStatus @default(ACTIVE)
+  archivedAt     DateTime?     @map("archived_at") @db.Timestamptz(3)
+  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  product         Product               @relation(fields: [productId], references: [id], onDelete: Restrict)
+  volumeUnit      Unit?                 @relation(fields: [volumeUnitId], references: [id], onDelete: Restrict)
+  barcodes        VariantBarcode[]
+  images          ProductImage[]
+  balances        InventoryBalance[]
+  batches         InventoryBatch[]
+  movements       StockMovement[]
+  adjustmentLines StockAdjustmentLine[]
+  transferLines   StockTransferLine[]
+
+  @@index([productId])
+  @@map("product_variants")
+}
+
+model VariantBarcode {
+  id        String  @id @default(uuid()) @db.Uuid
+  variantId String  @map("variant_id") @db.Uuid
+  barcode   String  @unique
+  isPrimary Boolean @default(false) @map("is_primary")
+
+  variant ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  @@index([variantId])
+  @@map("variant_barcodes")
+}
+
+model ProductImage {
+  id        String  @id @default(uuid()) @db.Uuid
+  productId String  @map("product_id") @db.Uuid
+  variantId String? @map("variant_id") @db.Uuid
+  fileId    String  @map("file_id") @db.Uuid
+  altText   String? @map("alt_text")
+  sortOrder Int     @default(0) @map("sort_order")
+
+  product Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  file    File            @relation(fields: [fileId], references: [id], onDelete: Restrict)
+
+  @@index([productId])
+  @@map("product_images")
+}
+
+// ───────────────────────────── Suppliers ─────────────────────────────
+
+model Supplier {
+  id               String   @id @default(uuid()) @db.Uuid
+  code             String   @unique
+  name             String
+  contactName      String?  @map("contact_name")
+  email            String?
+  phone            String?
+  address          String?
+  taxId            String?  @map("tax_id")
+  paymentTermsDays Int      @default(0) @map("payment_terms_days")
+  notes            String?
+  isActive         Boolean  @default(true) @map("is_active")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([name])
+  @@map("suppliers")
+}
+
+// ───────────────────────────── Inventory ─────────────────────────────
+
+/// Quantity per variant per location. Changed only by the inventory engine, under row locks.
+model InventoryBalance {
+  id          String   @id @default(uuid()) @db.Uuid
+  variantId   String   @map("variant_id") @db.Uuid
+  locationId  String   @map("location_id") @db.Uuid
+  qtyOnHand   Decimal  @default(0) @map("qty_on_hand") @db.Decimal(14, 3)
+  qtyReserved Decimal  @default(0) @map("qty_reserved") @db.Decimal(14, 3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  variant  ProductVariant @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  location Location       @relation(fields: [locationId], references: [id], onDelete: Restrict)
+
+  @@unique([variantId, locationId])
+  @@index([locationId])
+  @@map("inventory_balances")
+}
+
+enum BatchStatus {
+  AVAILABLE
+  QUARANTINE
+}
+
+/// Lots of batch/expiry-tracked variants. Used for FEFO picking and expiry control; carries no cost.
+model InventoryBatch {
+  id         String      @id @default(uuid()) @db.Uuid
+  variantId  String      @map("variant_id") @db.Uuid
+  locationId String      @map("location_id") @db.Uuid
+  lotNumber  String      @map("lot_number")
+  mfgDate    DateTime?   @map("mfg_date") @db.Date
+  expiryDate DateTime?   @map("expiry_date") @db.Date
+  qtyOnHand  Decimal     @default(0) @map("qty_on_hand") @db.Decimal(14, 3)
+  status     BatchStatus @default(AVAILABLE)
+  receivedAt DateTime    @default(now()) @map("received_at") @db.Timestamptz(3)
+
+  variant   ProductVariant  @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  location  Location        @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  movements StockMovement[]
+
+  @@unique([variantId, locationId, lotNumber])
+  @@index([variantId, locationId, expiryDate])
+  @@index([expiryDate])
+  @@map("inventory_batches")
+}
+
+enum StockMovementType {
+  OPENING
+  PURCHASE_RECEIPT
+  PURCHASE_RETURN
+  SALE
+  SALE_RETURN
+  ADJUSTMENT_IN
+  ADJUSTMENT_OUT
+  WRITE_OFF
+  TRANSFER_OUT
+  TRANSFER_IN
+}
+
+/// The stock ledger. Append-only (trigger). Every quantity change has exactly one movement per batch touched.
+model StockMovement {
+  id             String            @id @default(uuid()) @db.Uuid
+  variantId      String            @map("variant_id") @db.Uuid
+  locationId     String            @map("location_id") @db.Uuid
+  batchId        String?           @map("batch_id") @db.Uuid
+  type           StockMovementType
+  /// Signed: positive in, negative out.
+  qtyChange      Decimal           @map("qty_change") @db.Decimal(14, 3)
+  unitCost       Decimal           @map("unit_cost") @db.Decimal(18, 4)
+  /// Signed value moved; Σ total_cost per variant = its stock_value.
+  totalCost      Decimal           @map("total_cost") @db.Decimal(18, 2)
+  /// Location balance after this movement.
+  qtyAfter       Decimal           @map("qty_after") @db.Decimal(14, 3)
+  avgCostAfter   Decimal           @map("avg_cost_after") @db.Decimal(18, 4)
+  sourceType     String            @map("source_type")
+  sourceId       String            @map("source_id")
+  sourceLineId   String?           @map("source_line_id")
+  note           String?
+  createdById    String            @map("created_by_id") @db.Uuid
+  createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  variant   ProductVariant  @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  location  Location        @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  batch     InventoryBatch? @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  createdBy User            @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([variantId, createdAt])
+  @@index([locationId, createdAt])
+  @@index([sourceType, sourceId])
+  @@map("stock_movements")
+}
+
+enum DocumentStatus {
+  DRAFT
+  POSTED
+  CANCELLED
+}
+
+enum AdjustmentReason {
+  OPENING_STOCK
+  STOCK_COUNT
+  DAMAGE
+  EXPIRY
+  THEFT
+  OTHER
+}
+
+model StockAdjustment {
+  id             String           @id @default(uuid()) @db.Uuid
+  number         String           @unique
+  locationId     String           @map("location_id") @db.Uuid
+  reason         AdjustmentReason
+  note           String?
+  status         DocumentStatus   @default(DRAFT)
+  journalEntryId String?          @map("journal_entry_id") @db.Uuid
+  createdById    String           @map("created_by_id") @db.Uuid
+  createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+  postedById     String?          @map("posted_by_id") @db.Uuid
+  postedAt       DateTime?        @map("posted_at") @db.Timestamptz(3)
+  cancelledById  String?          @map("cancelled_by_id") @db.Uuid
+  cancelledAt    DateTime?        @map("cancelled_at") @db.Timestamptz(3)
+
+  location    Location              @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  createdBy   User                  @relation("AdjustmentCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  postedBy    User?                 @relation("AdjustmentPostedBy", fields: [postedById], references: [id], onDelete: Restrict)
+  cancelledBy User?                 @relation("AdjustmentCancelledBy", fields: [cancelledById], references: [id], onDelete: Restrict)
+  lines       StockAdjustmentLine[]
+
+  @@index([status, createdAt])
+  @@map("stock_adjustments")
+}
+
+model StockAdjustmentLine {
+  id           String    @id @default(uuid()) @db.Uuid
+  adjustmentId String    @map("adjustment_id") @db.Uuid
+  lineNo       Int       @map("line_no")
+  variantId    String    @map("variant_id") @db.Uuid
+  /// Signed, non-zero.
+  qtyChange    Decimal   @map("qty_change") @db.Decimal(14, 3)
+  /// Required for increases; decreases are valued at the moving average when posted.
+  unitCost     Decimal?  @map("unit_cost") @db.Decimal(18, 4)
+  /// Increases of batch-tracked items: the lot to add to. Decreases: optional lot to take from (else FEFO).
+  lotNumber    String?   @map("lot_number")
+  mfgDate      DateTime? @map("mfg_date") @db.Date
+  expiryDate   DateTime? @map("expiry_date") @db.Date
+  note         String?
+
+  adjustment StockAdjustment @relation(fields: [adjustmentId], references: [id], onDelete: Cascade)
+  variant    ProductVariant  @relation(fields: [variantId], references: [id], onDelete: Restrict)
+
+  @@unique([adjustmentId, lineNo])
+  @@map("stock_adjustment_lines")
+}
+
+enum TransferStatus {
+  DRAFT
+  DISPATCHED
+  RECEIVED
+  CANCELLED
+}
+
+model StockTransfer {
+  id             String         @id @default(uuid()) @db.Uuid
+  number         String         @unique
+  fromLocationId String         @map("from_location_id") @db.Uuid
+  toLocationId   String         @map("to_location_id") @db.Uuid
+  status         TransferStatus @default(DRAFT)
+  note           String?
+  createdById    String         @map("created_by_id") @db.Uuid
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+  dispatchedById String?        @map("dispatched_by_id") @db.Uuid
+  dispatchedAt   DateTime?      @map("dispatched_at") @db.Timestamptz(3)
+  receivedById   String?        @map("received_by_id") @db.Uuid
+  receivedAt     DateTime?      @map("received_at") @db.Timestamptz(3)
+  cancelledById  String?        @map("cancelled_by_id") @db.Uuid
+  cancelledAt    DateTime?      @map("cancelled_at") @db.Timestamptz(3)
+
+  fromLocation Location            @relation("TransferFrom", fields: [fromLocationId], references: [id], onDelete: Restrict)
+  toLocation   Location            @relation("TransferTo", fields: [toLocationId], references: [id], onDelete: Restrict)
+  createdBy    User                @relation("TransferCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  dispatchedBy User?               @relation("TransferDispatchedBy", fields: [dispatchedById], references: [id], onDelete: Restrict)
+  receivedBy   User?               @relation("TransferReceivedBy", fields: [receivedById], references: [id], onDelete: Restrict)
+  cancelledBy  User?               @relation("TransferCancelledBy", fields: [cancelledById], references: [id], onDelete: Restrict)
+  lines        StockTransferLine[]
+
+  @@index([status, createdAt])
+  @@map("stock_transfers")
+}
+
+model StockTransferLine {
+  id               String  @id @default(uuid()) @db.Uuid
+  transferId       String  @map("transfer_id") @db.Uuid
+  lineNo           Int     @map("line_no")
+  variantId        String  @map("variant_id") @db.Uuid
+  qty              Decimal @db.Decimal(14, 3)
+  /// Lots picked (FEFO) at dispatch, recreated at the destination on receipt.
+  batchAllocations Json?   @map("batch_allocations")
+
+  transfer StockTransfer  @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  variant  ProductVariant @relation(fields: [variantId], references: [id], onDelete: Restrict)
+
+  @@unique([transferId, lineNo])
+  @@map("stock_transfer_lines")
 }

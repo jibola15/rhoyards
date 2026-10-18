@@ -12,6 +12,7 @@
     "db:migrate": "prisma migrate deploy",
     "db:seed": "prisma db seed",
     "db:setup": "prisma migrate deploy && prisma db seed",
+    "db:seed:demo": "tsx prisma/seed-demo.ts",
     "db:diff": "prisma migrate diff --from-schema-datasource prisma/schema.prisma --to-schema-datamodel prisma/schema.prisma --script"
   },
   "prisma": {
@@ -27,9 +28,12 @@
     "dotenv": "^17.2.0",
     "express": "^5.1.0",
     "express-rate-limit": "^8.1.0",
+    "file-type": "^21.3.4",
     "helmet": "^8.1.0",
+    "multer": "^2.4.0",
     "pino": "^9.9.0",
     "pino-http": "^10.5.0",
+    "sharp": "^0.34.5",
     "swagger-ui-express": "^5.0.1",
     "zod": "^4.1.0"
   },
@@ -37,6 +41,7 @@
     "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",
+    "@types/multer": "^2.3.0",
     "@types/supertest": "^6.0.3",
     "@types/swagger-ui-express": "^4.1.8",
     "prisma": "~6.19.3",

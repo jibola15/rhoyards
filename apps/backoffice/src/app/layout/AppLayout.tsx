@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { Outlet } from 'react-router';
+import { Skeleton } from '@rhoyards/ui';
 import { readPreference, writePreference } from '../../lib/storage';
 import { Sidebar } from './Sidebar';
 import { Topbar } from './Topbar';
@@ -60,7 +61,16 @@ export function AppLayout() {
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar onOpenMobileNav={() => setMobileOpen(true)} theme={theme} onToggleTheme={toggleTheme} />
         <main id="main" className="flex-1 p-4 md:p-6">
-          <Outlet />
+          <Suspense
+            fallback={
+              <div aria-busy="true" aria-label="Loading page" className="space-y-4">
+                <Skeleton className="h-8 w-64" />
+                <Skeleton className="h-64 w-full" />
+              </div>
+            }
+          >
+            <Outlet />
+          </Suspense>
         </main>
       </div>
     </div>

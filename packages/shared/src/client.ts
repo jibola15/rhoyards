@@ -33,7 +33,9 @@ export function createApiClient({ baseUrl, getCsrfToken, fetchImpl }: ApiClientO
   async function request<T>(method: Method, path: string, options: RequestOptions = {}): Promise<T> {
     const doFetch = fetchImpl ?? fetch;
     const headers: Record<string, string> = { Accept: 'application/json', ...options.headers };
-    if (options.body !== undefined) headers['Content-Type'] = 'application/json';
+    // FormData (file uploads) sets its own multipart Content-Type with the boundary.
+    const isForm = typeof FormData !== 'undefined' && options.body instanceof FormData;
+    if (options.body !== undefined && !isForm) headers['Content-Type'] = 'application/json';
     if (method !== 'GET') {
       const csrf = getCsrfToken?.();
       if (csrf) headers['X-CSRF-Token'] = csrf;
@@ -43,7 +45,7 @@ export function createApiClient({ baseUrl, getCsrfToken, fetchImpl }: ApiClientO
       method,
       headers,
       credentials: 'include',
-      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      body: options.body === undefined ? undefined : isForm ? (options.body as FormData) : JSON.stringify(options.body),
       signal: options.signal,
     });
 

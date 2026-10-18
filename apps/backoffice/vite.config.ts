@@ -4,6 +4,19 @@ import { defineConfig } from 'vite';
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  build: {
+    rollupOptions: {
+      output: {
+        // Long-lived vendor chunks: app releases don't invalidate the browser's cached libraries.
+        manualChunks: {
+          react: ['react', 'react-dom', 'react-router'],
+          data: ['@tanstack/react-query'],
+          forms: ['react-hook-form', '@hookform/resolvers', 'zod'],
+          ui: ['@radix-ui/react-dialog', 'sonner', 'lucide-react'],
+        },
+      },
+    },
+  },
   server: {
     port: 5173,
     strictPort: true,

@@ -24,6 +24,7 @@ Schema source: [`apps/api/prisma/schema.prisma`](../apps/api/prisma/schema.prism
 | `npm run db:migrate` | Apply pending migrations (`prisma migrate deploy`) |
 | `npm run db:seed` | Idempotent reference data + first owner account |
 | `npm run db:setup` | Both of the above |
+| `npm run db:seed:demo` | Fictional demo catalogue, suppliers and posted opening stock (development only; refuses in production) |
 | `npm run db:generate` | Regenerate the Prisma client |
 | `npm run db:diff` | Print SQL needed to bring the live database in line with `schema.prisma` |
 
@@ -43,14 +44,27 @@ Schema source: [`apps/api/prisma/schema.prisma`](../apps/api/prisma/schema.prism
 - `ON DELETE RESTRICT` for anything referenced by history. Users, roles in use, accounts and locations are deactivated, not deleted.
 - Every money/stock/accounting change runs in one interactive transaction (`transaction()` in `src/lib/prisma.ts`) and writes its audit record inside that transaction.
 
-## Tables (Phase 2)
+## Tables
 
-| Area | Tables |
-|---|---|
-| Identity & security | `users`, `roles`, `permissions`, `role_permissions`, `user_roles`, `user_locations`, `sessions`, `audit_logs` |
-| Configuration | `settings` (one JSON row per section), `tax_rates`, `document_sequences`, `idempotency_keys` |
-| Locations | `locations` |
-| Accounting core | `accounts`, `fiscal_years`, `accounting_periods`, `journal_entries`, `journal_lines` |
+| Phase | Area | Tables |
+|---|---|---|
+| 2 | Identity & security | `users`, `roles`, `permissions`, `role_permissions`, `user_roles`, `user_locations`, `sessions`, `audit_logs` |
+| 2 | Configuration | `settings` (one JSON row per section), `tax_rates`, `document_sequences`, `idempotency_keys` |
+| 2 | Locations | `locations` |
+| 2 | Accounting core | `accounts`, `fiscal_years`, `accounting_periods`, `journal_entries`, `journal_lines` |
+| 3 | Files | `files` (server-generated storage key, SHA-256, visibility) |
+| 3 | Catalogue | `brands`, `categories` (tree), `units`, `products`, `product_variants`, `variant_barcodes`, `product_images` |
+| 3 | Suppliers | `suppliers` |
+| 3 | Inventory | `inventory_balances` (variant × location), `inventory_batches` (lots), `stock_movements` (ledger), `stock_adjustments` + `_lines`, `stock_transfers` + `_lines` |
+
+### Inventory model
+
+- `product_variants.stock_qty` / `stock_value` are company-wide totals kept by the inventory engine; `avg_cost` = value ÷ qty (moving weighted average). Invariants, checked by the test suite:
+  - Σ `inventory_balances.qty_on_hand` per variant = `stock_qty` − quantity in transit on dispatched transfers;
+  - Σ `stock_movements.total_cost` (excluding transfer movements) per variant = `stock_value`;
+  - Σ `stock_value` over all variants = balance of the `INVENTORY` ledger account (`GET /inventory/valuation` reports the difference).
+- Batch/expiry-tracked products hold their stock in `inventory_batches`; lot quantities never go negative. Expiry-tracked always implies batch-tracked. A lot without a number is named `EXP-YYYY-MM-DD` from its expiry date.
+- Every stock change takes row locks via `openStockSession()`: variant rows first (`FOR UPDATE`, ordered by id), then balance rows (ordered by variant, location).
 
 ## Integrity guards in the database
 
@@ -66,6 +80,14 @@ Defined in `prisma/migrations/20261018120100_phase2_integrity_guards/migration.s
 | `audit_logs_append_only_trg` | audit rows cannot be updated or deleted |
 | `tax_rates_rate_chk` | 0 ≤ rate ≤ 100, and zero-rated/exempt rates must be 0 |
 | `users_email_lower_chk` | emails stored lower-case (case-insensitive uniqueness) |
+| `stock_movements_append_only_trg` | the stock ledger cannot be updated or deleted |
+| `stock_movements_qty_chk` / `_cost_chk` | movements are non-zero; unit cost ≥ 0 |
+| `inventory_batches_qty_chk` | a lot can never hold negative stock |
+| `inventory_balances_reserved_chk` | reserved quantity ≥ 0 (on-hand may go negative only via the authorised negative-stock path) |
+| `stock_adjustments_guard_trg` / `stock_transfers_guard_trg` | POSTED / RECEIVED / CANCELLED documents cannot be changed or deleted |
+| `stock_adjustment_lines_guard_trg` / `stock_transfer_lines_guard_trg` | lines can change only while the document is DRAFT |
+| `product_variants_sku_chk` / `_prices_chk` / `_reorder_chk` | SKU format (upper-case); prices, costs and reorder levels ≥ 0 |
+| `products_expiry_needs_batch_chk` | expiry tracking requires batch tracking |
 
 ## Sessions
 
@@ -73,4 +95,4 @@ Defined in `prisma/migrations/20261018120100_phase2_integrity_guards/migration.s
 
 ## Seed data
 
-`prisma/seed/base.ts` creates (only if missing): the permission catalogue, six system roles with default permissions, the chart of accounts, VAT (7.5 %, editable) / zero-rated / exempt tax rates, default settings (NGN, prices include VAT), the `MAIN` store location and the current fiscal year with 12 monthly periods. `prisma/seed.ts` additionally creates the first owner from `SEED_OWNER_EMAIL` / `SEED_OWNER_PASSWORD` with a forced password change. No real customer data is seeded.
+`prisma/seed/base.ts` creates (only if missing): the permission catalogue, six system roles with default permissions, the chart of accounts, VAT (7.5 %, editable) / zero-rated / exempt tax rates, default settings (NGN, prices include VAT), units of measure (PC, SET, PACK, ML, L, G, KG), the `MAIN` store location and the current fiscal year with 12 monthly periods. `prisma/seed.ts` additionally creates the first owner from `SEED_OWNER_EMAIL` / `SEED_OWNER_PASSWORD` with a forced password change. No real customer data is seeded.

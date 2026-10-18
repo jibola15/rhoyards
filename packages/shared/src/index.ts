@@ -4,3 +4,6 @@ export * from './client';
 export * from './permissions';
 export * from './settings';
 export * from './identity';
+export * from './inputs';
+export * from './catalog';
+export * from './inventory';

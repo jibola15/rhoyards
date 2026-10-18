@@ -24,6 +24,9 @@ const envSchema = z.object({
   SESSION_ABSOLUTE_HOURS: z.coerce.number().int().min(1).max(72).default(12),
   /** Login attempts allowed per IP per 15 minutes. */
   LOGIN_RATE_LIMIT: z.coerce.number().int().min(1).default(10),
+  /** Directory for uploaded files (local-disk storage driver). */
+  UPLOAD_DIR: z.string().min(1).default('./storage/uploads'),
+  MAX_UPLOAD_MB: z.coerce.number().min(1).max(25).default(5),
 });
 
 export type Env = Omit<z.infer<typeof envSchema>, 'API_DOCS_ENABLED'> & { API_DOCS_ENABLED: boolean };

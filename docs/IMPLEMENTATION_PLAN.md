@@ -13,6 +13,11 @@ Date: 2026-10-18
 | 2026-10-18 | Schema delivered **incrementally per phase** (Phase 2: identity, settings, locations, accounting core) rather than all tables up front | Each phase adds its tables in its own migration; §4 remains the target design |
 | 2026-10-18 | Tests use a **separate Neon database** (`rhoyards_test`), not a schema | Schema isolation via `?schema=` is unsafe behind Neon's PgBouncer pooler (it caused a test run to truncate dev data during Phase 2). Guards added; see DATABASE.md |
 | 2026-10-18 | Posting engine and ledger triggers built in Phase 2 (ahead of Phase 6 accounting UI) | Phases 3–5 post stock and sales through it from the start |
+| 2026-10-19 | WAC kept as stock_qty + stock_value per variant (avg = value ÷ qty); emptying stock releases the exact remaining value | Stock ledger equals the Inventory GL balance to the kobo; reconciliation endpoint + test |
+| 2026-10-19 | Supplier master data moved into Phase 3 (purchasing documents stay in Phase 4) | Matches the brief's phase list ("products, variants, suppliers, and inventory") |
+| 2026-10-19 | Expiry tracking implies batch tracking; lots without a number are named from their expiry date | One mechanism (lots) for FEFO, expiry blocking and traceability |
+| 2026-10-19 | Transfers are two-step (dispatch → receive) with no GL entry; in-transit quantity reported by the valuation endpoint | Value stays in Inventory throughout |
+| 2026-10-19 | Product images re-encoded server-side to WebP (≤1600 px, metadata stripped) | Upload safety (no client bytes stored) and consistent storefront images |
 
 ---
 

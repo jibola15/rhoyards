@@ -111,6 +111,19 @@ export async function seedBase(prisma: PrismaClient, now = new Date()) {
     skipDuplicates: true,
   });
 
+  await prisma.unit.createMany({
+    data: [
+      { code: 'PC', name: 'Piece' },
+      { code: 'SET', name: 'Set' },
+      { code: 'PACK', name: 'Pack' },
+      { code: 'ML', name: 'Millilitre', allowsFraction: true },
+      { code: 'L', name: 'Litre', allowsFraction: true },
+      { code: 'G', name: 'Gram', allowsFraction: true },
+      { code: 'KG', name: 'Kilogram', allowsFraction: true },
+    ],
+    skipDuplicates: true,
+  });
+
   await prisma.location.createMany({
     data: [
       {

@@ -38,6 +38,20 @@ Request pipeline, in order (`src/app.ts`):
 - **Revocation:** logout, password change (other sessions), password reset and disabling a user revoke sessions server-side.
 - **Audit:** logins (success/failure/lockout), logouts, password changes, user/role/settings/tax/location changes are written to `audit_logs` with before/after snapshots inside the same transaction.
 
+## Inventory engine
+
+`src/engines/inventory/inventory.engine.ts`. `openStockSession(tx, keys, actorId)` locks the variant rows and then the balance rows (fixed order, no deadlocks) and returns a session with:
+
+- `receive()` — stock in with a cost; updates the moving average; creates/increments the lot for batch-tracked items.
+- `issue()` — stock out at the moving average; picks lots first-expiry-first-out (or a named lot); applies the expired-stock policy (`block` | `allow`), reservations and the negative-stock rule; splits value across lots so the parts sum exactly.
+- `transferOut()` / `transferIn()` — move quantity and lots between locations without changing company quantity or value.
+
+Every call writes `stock_movements` rows (the append-only stock ledger). Documents (adjustments today; purchase receipts, sales and returns in later phases) run the engine and `postJournal()` in the same transaction, so stock and the ledger change together or not at all.
+
+## Files
+
+`POST /files/images` (multer, memory, size-limited) → magic-byte check with `file-type` (JPEG/PNG/WebP only) → `sharp` re-encode to WebP, max 1600 px, metadata stripped → stored under a server-generated key via the `FileStorage` interface (`LocalDiskStorage`; S3-compatible driver later). `GET /files/:id` serves public files (product images) without a session, private files only to signed-in staff, with `nosniff` and explicit content type.
+
 ## Ledger posting engine
 
 `src/engines/posting/posting.service.ts` — `postJournal(tx, input)` and `reverseJournal(tx, id, …)`. Validates balance with `Decimal`, resolves accounts by id or `system_key`, finds the open period, numbers the entry, inserts it as DRAFT with lines and flips it to POSTED (the database trigger re-validates). Idempotent per `posting_key`. All later modules post through it — see [ACCOUNTING_RULES.md](ACCOUNTING_RULES.md).
@@ -64,6 +78,9 @@ Module layout: `src/modules/<name>/<name>.routes.ts` (+ controller, service, sch
 - `AuthProvider` loads `/auth/me`; `RequireAuth` redirects anonymous users to `/login?next=…` (same-app paths only) and forces `/account/password` when a change is pending; `RequirePermission` shows an access-denied page. Any 401 from any request drops the cached session (back to login). The CSRF token is kept in memory only.
 - Forms: react-hook-form + the shared Zod schemas; server validation errors are mapped back onto fields. Dialog forms mount on open, so each opening starts clean.
 - Phase 2 screens: Staff users (search, status filter, pagination, create/edit/disable, reset password), Roles & permissions (permission matrix by module, custom roles), Settings (business details, VAT-inclusive/exclusive pricing, tax rates, inventory rules, receipt text, fiscal year, locations).
+- Phase 3 screens: Products (search/filters), product editor (details, variants with cosmetics attributes and barcodes, images, archive), Catalogue setup (brands, categories, units), Suppliers, Stock levels (with stock-ledger ↔ GL reconciliation), Stock adjustments (draft → post), Transfers (draft → dispatch → receive), Expiry, Stock movements.
+- `VariantPicker` is an accessible combobox: type to search, or scan — Enter on an exact barcode/SKU selects it.
+- Routes are code-split (`React.lazy`); libraries are in long-lived vendor chunks.
 - API calls go through `createApiClient` (`packages/shared`): same-origin `/api/v1`, `credentials: 'include'`, `X-CSRF-Token` on state-changing requests, typed `ApiError` from the error envelope.
 
 ## Testing

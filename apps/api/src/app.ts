@@ -8,6 +8,11 @@ import { pinoHttp } from 'pino-http';
 import swaggerUi from 'swagger-ui-express';
 import type { Env } from './config/env';
 import { createLogger } from './lib/logger';
+import { LocalDiskStorage, type FileStorage } from './lib/storage';
+import { catalogRouter } from './modules/catalog/catalog.routes';
+import { filesRouter } from './modules/files/files.routes';
+import { inventoryRouter } from './modules/inventory/inventory.routes';
+import { suppliersRouter } from './modules/suppliers/suppliers.routes';
 import { errorHandler, notFoundHandler } from './middleware/error-handler';
 import { createRateLimiter } from './middleware/rate-limit';
 import { auditRouter } from './modules/audit/audit.routes';
@@ -30,7 +35,11 @@ export function sessionConfig(env: Env): SessionConfig {
   };
 }
 
-export function createApp(env: Env, logger: Logger = createLogger(env)) {
+export function createApp(
+  env: Env,
+  logger: Logger = createLogger(env),
+  storage: FileStorage = new LocalDiskStorage(env.UPLOAD_DIR),
+) {
   const app = express();
   const sessions = sessionConfig(env);
   app.disable('x-powered-by');
@@ -73,6 +82,10 @@ export function createApp(env: Env, logger: Logger = createLogger(env)) {
   app.use('/api/v1', rolesRouter);
   app.use('/api/v1', settingsRouter);
   app.use('/api/v1', auditRouter);
+  app.use('/api/v1', filesRouter(storage, env.MAX_UPLOAD_MB));
+  app.use('/api/v1', catalogRouter);
+  app.use('/api/v1', suppliersRouter);
+  app.use('/api/v1', inventoryRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler(logger));

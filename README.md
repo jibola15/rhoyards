@@ -2,7 +2,7 @@
 
 Inventory, in-store POS, online store, purchasing, expenses and double-entry accounting for a cosmetics retailer with one physical store and an online shop.
 
-> **Status:** Phases 1–2 complete — project setup; database, migrations, staff authentication, roles & permissions, settings, audit log and the ledger posting engine. See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) for the roadmap and decisions log.
+> **Status:** Phases 1–3 complete — project setup; database, authentication, roles & permissions, settings, audit log and ledger posting engine; catalogue (products, variants, brands, categories, units, images), suppliers and inventory (moving-average costing, FEFO lots, expiry, adjustments, transfers, stock ledger). See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) for the roadmap and decisions log.
 
 ## Repository layout
 
@@ -27,6 +27,7 @@ npm install
 cp apps/api/.env.example apps/api/.env   # PowerShell: Copy-Item apps/api/.env.example apps/api/.env
 # fill in DATABASE_URL, DIRECT_URL, TEST_DATABASE_URL, TEST_DIRECT_URL, SEED_OWNER_EMAIL, SEED_OWNER_PASSWORD
 npm run db:setup -w @rhoyards/api        # migrations + reference data + first owner account
+npm run db:seed:demo -w @rhoyards/api    # optional: fictional demo products, suppliers and opening stock
 npm run dev
 ```
 

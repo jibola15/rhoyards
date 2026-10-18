@@ -3,7 +3,7 @@
 The rules every module follows when it posts to the general ledger. Implemented by the posting engine
 ([`apps/api/src/engines/posting/posting.service.ts`](../apps/api/src/engines/posting/posting.service.ts)); enforced again by database triggers (see [DATABASE.md](DATABASE.md)).
 
-Status: the **engine, ledger guards, chart of accounts and periods are built (Phase 2)**. Posting rules marked *(Phase n)* are applied when that module is built.
+Status: the **engine, ledger guards, chart of accounts and periods are built (Phase 2)**; **inventory costing, stock adjustments and transfers are built (Phase 3)**. Posting rules marked *(Phase n)* for later phases are applied when that module is built.
 
 ## 1. Fundamentals
 
@@ -29,14 +29,30 @@ The business is VAT-registered. Configuration:
 - Each product carries a tax rate: standard (default 7.5 %, editable), zero-rated or exempt. The rate is **snapshotted on each sale line**, so changing a rate affects new transactions only.
 - Output VAT is credited to `VAT_OUTPUT` (2100). Recoverable input VAT on purchases/expenses is debited to `VAT_INPUT` (2110); whether input VAT is recoverable is decided per transaction type, not assumed.
 
-## 4. Inventory costing — moving weighted-average cost (WAC) *(Phase 3)*
+## 4. Inventory costing — moving weighted-average cost (WAC) *(built in Phase 3)*
 
-- WAC is maintained **per variant, company-wide**. Transfers between locations do not change cost.
-- Inbound with cost (receipt, opening stock, positive adjustment, restocked return):
-  `new_avg = (qty_on_hand × avg + qty_in × unit_cost_in) / (qty_on_hand + qty_in)`.
-- Outbound (sale, write-off, negative adjustment, purchase return) is valued at the current average. The stock movement and the COGS/inventory journal lines use **the same figure**.
+- WAC is maintained **per variant, company-wide**, by holding the variant's total quantity (`stock_qty`) and total value (`stock_value`). Transfers between locations do not change cost or value.
+- Inbound with cost (receipt, opening stock, positive adjustment, restocked return): value in = round₂(qty × unit cost); `stock_value += value in`; `avg_cost = round₄(stock_value / stock_qty)`.
+- Outbound (sale, write-off, negative adjustment, purchase return) is valued at the current average: cost = round₂(qty × avg_cost) — **except** when the issue empties the variant, in which case cost = the remaining `stock_value` exactly, so rounding never accumulates. The stock movement and the journal lines use **the same figure**.
 - Batches/lots drive FEFO picking and expiry control only; they carry no separate cost.
-- Control: Σ(qty_on_hand × avg_cost) per the stock ledger = balance of `INVENTORY` (1200).
+- Control: Σ `stock_value` = balance of `INVENTORY` (1200); exposed at `GET /inventory/valuation` and shown on the Stock levels screen.
+- Negative stock is refused unless the `inventory.allowNegativeStock` setting is on **and** the user holds `stock.negative.allow`; it is never allowed for batch-tracked items. Issues while stock is at or below zero are costed at the last average.
+
+### Stock adjustments *(built in Phase 3)*
+
+| Reason | Increase (Dr Inventory / Cr …) | Decrease (Dr … / Cr Inventory) | Movement type |
+|---|---|---|---|
+| Opening stock | Opening balance equity (3900) | — (not allowed) | `OPENING` |
+| Stock count correction | Inventory adjustments (5010) | Inventory adjustments (5010) | `ADJUSTMENT_IN` / `ADJUSTMENT_OUT` |
+| Theft / loss | — (not allowed) | Inventory adjustments (5010) | `ADJUSTMENT_OUT` |
+| Damaged, Expired | — (not allowed) | Stock write-off (5020) | `WRITE_OFF` |
+| Other | Inventory adjustments (5010) | Inventory adjustments (5010) | `ADJUSTMENT_IN` / `ADJUSTMENT_OUT` |
+
+Adjustments are created as drafts (`inventory.adjust`) and posted (`inventory.adjust.approve`); posting moves stock and posts one journal (`posting_key = STOCK_ADJUSTMENT:<id>`) in a single transaction. Decreases may take expired lots (they correct reality); sales will not when expired sales are blocked.
+
+### Stock transfers *(built in Phase 3)*
+
+Dispatch removes stock (FEFO; expired lots are not sent) from the source; receipt recreates the same lots at the destination. No journal entry: the value stays in Inventory throughout, and quantity in transit is reported by the valuation endpoint.
 
 ## 5. Posting rules
 
@@ -54,8 +70,8 @@ The business is VAT-registered. Configuration:
 | Sales return + refund *(Phase 8)* | Sales returns (4010); VAT output | Cash / Bank / AR |
 | …if restocked *(Phase 8)* | Inventory at the **original sale-line unit cost** | COGS |
 | Online order cancelled after payment *(Phase 8)* | handled as a full return + refund | |
-| Stock adjustment up / down *(Phase 3)* | Inventory / Shrinkage (5010) or Write-off (5020) | Inventory adjustments (5010) / Inventory |
-| Stock transfer *(Phase 3)* | — no GL entry (same legal entity) — | |
+| Stock adjustment *(built — see §4)* | Inventory, or Adjustments (5010) / Write-off (5020) | Opening balance equity / Adjustments, or Inventory |
+| Stock transfer *(built)* | — no GL entry (same legal entity) — | |
 | Expense *(Phase 8)* | Expense account; VAT input if recoverable | Cash / Bank (paid) or AP (on account) |
 | Cash over / short at shift close *(Phase 8)* | Cash (over) / Cash over-short (4900) (short) | Cash over-short (over) / Cash (short) |
 | Card settlement *(Phase 8)* | Bank; Bank charges (6050) | Card clearing |

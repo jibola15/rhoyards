@@ -1,0 +1,18 @@
+node_modules/
+dist/
+coverage/
+*.log
+*.tsbuildinfo
+
+# Secrets — never commit real environment files
+.env
+.env.*
+!.env.example
+
+# Local file uploads
+apps/api/storage/
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.idea/

@@ -59,11 +59,15 @@ Date: 2026-10-18
 | 2026-10-25 | Operational sales report = item revenue net of VAT and discounts, less returns (by refund date), with cost; delivery charges excluded. It reconciles to the ledger's Sales revenue less Sales returns | One definition of "net sales" across screens |
 | 2026-10-25 | CSV export from the API (`?format=csv`), UTF-8 with BOM, formula-injection-safe (text starting =, +, -, @ is prefixed; numbers are left as numbers) | Opens cleanly in Excel; safe to open |
 | 2026-10-25 | Charts: Recharts, one validated series colour (palette slot 1, light/dark), hover tooltip and a table view; Recharts is loaded only with the dashboard | Accessible charts without weighing down other screens |
-| 2026-10-26 | Production topology: one API instance behind a reverse proxy serving both SPAs, each calling `/api` on its own origin (first-party, host-only cookies) | Simple and secure; in-process jobs and rate limits need a single instance (docs/DEPLOYMENT.md) |
+| 2026-10-26 | Production topology: API behind a reverse proxy serving both SPAs, each calling `/api` on its own origin (first-party, host-only cookies) | Simple and secure (docs/DEPLOYMENT.md) |
 | 2026-10-26 | API responses carry `Content-Security-Policy: default-src 'none'`; front-end CSP is set by the proxy (`script-src 'self'`) | Nothing the API returns can run as a page |
 | 2026-10-26 | E2E with Playwright against the real API on the test database (reset and seeded by `e2e/start-api.ts`) and both Vite apps | The whole money path (shop → gateway → webhook → order; till → sale; dashboard) is tested in a browser |
 | 2026-10-26 | A test walks the running app's routes and fails if any is missing from the OpenAPI document | API docs stay complete |
 | 2026-10-26 | `sharp` upgraded to 0.35.5 (security advisories); the Prisma CLI's `deepmerge-ts` advisory accepted until the Prisma 7 upgrade (docs/SECURITY.md) | No known reachable vulnerability in production dependencies |
+| 2026-10-27 | Staff sign in with email **or** an optional username (lower case, no `@`) | Quicker at the till; never ambiguous |
+| 2026-10-27 | **Two-step sign-in required for all staff**: authenticator app (TOTP) + 10 one-time backup codes; set up at first sign-in; no SMS | Phishing-resistant enough for a small business, free, works offline; no phone-number dependency |
+| 2026-10-27 | Self-service password reset by email for staff and shoppers (30-minute single-use link, token in the URL fragment); SMTP via nodemailer, files in an outbox folder in development | Any email provider; nothing leaks through logs or Referer |
+| 2026-10-27 | Several API instances supported: rate limits in PostgreSQL, background jobs once per interval under an advisory lock (`scheduled_jobs`) | Availability and scaling without Redis or a separate scheduler |
 
 ---
 
@@ -467,8 +471,7 @@ Integration tests run against a dedicated Neon `test` branch, which is reset per
 - **No real card gateway** yet; bank transfer (staff-verified) and the test gateway only. See [PAYMENTS.md](PAYMENTS.md).
 - Storefront stock badges use on-hand minus reserved and ignore expired lots; checkout's reservation does exclude expired lots, so a customer can at worst be told at checkout that an item is short.
 - The stock report's rate of sale is company-wide per variant (one store today); with several locations it would need a location filter.
-- Production runs a **single API instance** (in-process jobs and rate limits); scaling out needs a shared store and one job runner.
-- **No staff two-factor sign-in**, no customer password reset or email verification (no email service yet). See docs/SECURITY.md.
+- No email verification for shoppers; the only emails sent are password-reset links and "password changed" notices. See docs/SECURITY.md.
 - Prisma 6 → 7 upgrade pending (clears the `deepmerge-ts` CLI advisory; replaces the deprecated `package.json#prisma` config).
 - Prettier is configured but the codebase is not formatted with it (`npm run format:check` fails across earlier phases too); ESLint is the enforced style check.
 

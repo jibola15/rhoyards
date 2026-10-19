@@ -78,7 +78,7 @@ registry.registerPath({
 
 export function webhooksRouter(env: Env) {
   const router = Router();
-  const limiter = createRateLimiter({ windowMs: 60_000, limit: 300 });
+  const limiter = createRateLimiter({ name: 'webhooks', windowMs: 60_000, limit: 300, shared: env.RATE_LIMIT_STORE === 'database' });
   if (env.PAYMENT_TEST_ENABLED) {
     router.post('/webhooks/payments/test', limiter, async (req, res) => {
       if (!req.rawBody) throw new AppError(400, 'VALIDATION_ERROR', 'Expected a JSON body');

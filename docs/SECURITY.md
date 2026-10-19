@@ -6,8 +6,11 @@ The controls in place, what the Phase 10 review checked, and the risks accepted 
 
 | Area | Control |
 |---|---|
-| Staff sign-in | argon2id password hashes; minimum 10 characters; lockout after 5 failures for 15 minutes; per-IP rate limit; constant-time response for unknown emails; forced password change for new and reset accounts |
-| Customer sign-in | separate `customer_accounts`, own cookie (`rh_cid`) and sessions (realm CUSTOMER); same hashing, lockout and rate limit; minimum 8 characters |
+| Staff sign-in | email or username + password, then **required two-step sign-in**: a 6-digit code from an authenticator app (TOTP, RFC 6238) or a one-time backup code. The password step only opens a 10-minute challenge (no session); 5 codes per challenge; wrong passwords and wrong codes both count toward the lockout (5 failures → 15 minutes), and the count resets only after a full sign-in. Each authenticator code works once. Secrets are AES-256-GCM encrypted with `TWO_FACTOR_KEY`; backup codes stored as SHA-256 hashes. First sign-in sets up the app. argon2id password hashes; minimum 10 characters; per-IP rate limits; constant-time response for unknown accounts; forced password change for admin-set passwords |
+| Two-step management | users replace backup codes (with a current code) and move to a new phone (password + a code from the new app; other sessions end); an administrator with `users.manage` can reset a lost authenticator (owners only for owners; not their own), which signs the person out everywhere |
+| Password reset | staff (email or username) and shoppers: single-use link valid 30 minutes, token in the URL fragment (never sent to servers or in Referer), only its hash stored; only the newest link works; at most 3 emails per account per hour; the request is answered before the account is looked up, so neither the response nor its timing reveals whether an account exists; a reset signs out every session, ends half-finished sign-ins and clears a lockout, and a "password changed" email follows. For staff a reset changes only the password: the authenticator is still required |
+| Customer sign-in | separate `customer_accounts`, own cookie (`rh_cid`) and sessions (realm CUSTOMER); same hashing, lockout and rate limit; minimum 8 characters; no two-step sign-in (shoppers) |
+| Several instances | rate-limit counters in PostgreSQL (shared by every API instance); background jobs run once per interval under an advisory lock |
 | Sessions | random 256-bit tokens, only the SHA-256 stored; HttpOnly, SameSite=Lax, `__Host-` + Secure in production; idle and absolute expiry; revoked on logout, password change, reset and disabling a user; expired sessions purged hourly |
 | CSRF | synchronizer token per session in a header (held in memory by the front ends), plus an Origin check on state-changing requests |
 | Authorisation | permission checked on every route on the server; role edits cannot grant permissions the editor lacks; owners protected from lock-out; the system user can never sign in and is hidden from staff screens |
@@ -34,9 +37,9 @@ The controls in place, what the Phase 10 review checked, and the risks accepted 
 
 ## Accepted risks and limits (v1)
 
-- **Single API instance.** Rate-limit counters and background jobs are in memory; running more instances needs a shared store (e.g. Redis) and a single job runner.
-- **No staff two-factor sign-in.** Recommended next step for owner and accountant accounts.
-- **No customer password reset or email verification** (no email service yet). Registration reveals whether an email already has an account (the usual trade-off for a clear sign-up error).
+- **Two-step sign-in trusts the first set-up.** Whoever first signs in with a new account's password sets up its authenticator; give temporary passwords to people directly, not by shared channels.
+- **No email verification for shoppers.** Registration reveals whether an email already has an account (the usual trade-off for a clear sign-up error). Password-reset requests do not.
+- **Shared rate limits cost one database query per API request** (`RATE_LIMIT_STORE=database`, the production default).
 - **PDF receipts are stored as uploaded** (after a content check). They are private, served only as downloads with `nosniff`, and never rendered on our origin.
 - **Front-end CSP allows inline style attributes** (`style-src 'unsafe-inline'`), needed by React style props and the charts; scripts remain `'self'` only.
 - **Uploads on local disk.** Use a persistent, backed-up volume; an S3-compatible driver can replace it behind the `FileStorage` interface.

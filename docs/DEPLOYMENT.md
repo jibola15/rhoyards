@@ -1,6 +1,6 @@
 # Deployment guide
 
-How to run Rhoyards in production. One API process, two static front ends, one PostgreSQL database (Neon), behind a reverse proxy with TLS.
+How to run Rhoyards in production. One or more API processes, two static front ends, one PostgreSQL database (Neon), an SMTP account for email, behind a reverse proxy with TLS.
 
 ```
                        ┌──────────────── reverse proxy (TLS, security headers) ────────────────┐
@@ -9,7 +9,7 @@ How to run Rhoyards in production. One API process, two static front ends, one P
                        └───────────────────────────────────────────────────────────────────────┘
                                                     │
                                      node apps/api/dist/server.js  ──►  Neon PostgreSQL
-                                     (one instance; uploads on a persistent disk)
+                                     (1..n instances; uploads on a shared disk) ──►  SMTP
 ```
 
 Each front end calls `/api` on its **own** origin, so session cookies stay first-party and host-only: the staff cookie lives on the admin host, the customer cookie on the shop host.
@@ -20,7 +20,8 @@ Each front end calls `/api` on its **own** origin, so session cookies stay first
 - A Neon project with a **production database** (not the development or test one), a least-privilege role for the API and a separate role for migrations. Point-in-time restore enabled.
 - A persistent directory for uploaded files (product photos, expense receipts), backed up.
 - Two host names with TLS certificates (Caddy obtains them automatically).
-- **Exactly one API instance.** Background jobs (releasing expired online-order reservations every minute, hourly housekeeping) and the rate limiters run inside the process; two instances would double the jobs and split the rate-limit counters.
+- An **SMTP account** for outgoing email (password-reset links). Any provider works (Mailgun, SendGrid, Amazon SES, Postmark, Microsoft 365, …); the sender address should be on a domain with SPF and DKIM set up.
+- **One API instance or several.** Several copies can run behind a load balancer (for availability or load): rate-limit counters live in the database (`rate_limits`), and each background job (releasing expired online-order reservations every minute, hourly housekeeping) runs on only one instance at a time, once per interval, coordinated through a PostgreSQL advisory lock and the `scheduled_jobs` table. Sessions, idempotency keys and sign-in challenges are already in the database, so no sticky sessions are needed. With several instances, `UPLOAD_DIR` must be **shared** by all of them (a network volume), or replaced by an object-storage driver.
 
 ## 2. Configuration (`apps/api/.env` or the service manager's environment)
 
@@ -35,7 +36,14 @@ Each front end calls `/api` on its **own** origin, so session cookies stay first
 | `TRUST_PROXY` | number of proxies in front of the API, usually `1`. **Required**: with `0` every client shares the proxy's IP for rate limits and audit logs (the API logs a warning at start-up) |
 | `API_DOCS_ENABLED` | leave unset (off in production) |
 | `SESSION_IDLE_MINUTES` / `SESSION_ABSOLUTE_HOURS` | staff sessions; defaults 30 / 12 |
-| `LOGIN_RATE_LIMIT` | sign-in attempts per IP per 15 minutes; default 10 |
+| `LOGIN_RATE_LIMIT` | sign-in attempts per IP per 15 minutes; default 10 (also used for password-reset requests; code attempts get twice this) |
+| `RATE_LIMIT_STORE` | leave unset: `database` in production (counters shared by every instance). `memory` only for a single instance that must avoid the extra query per request |
+| `TWO_FACTOR_KEY` | **required**: 32 random bytes, base64 (`openssl rand -base64 32`). Encrypts staff authenticator secrets. Keep it with the database backups' secrets: losing it means every staff member must set up their authenticator again (an owner resets them under Staff users) |
+| `BACKOFFICE_URL` / `STOREFRONT_URL` | **required**, `https://admin.example.com` / `https://shop.example.com`: the links in password-reset emails |
+| `SMTP_HOST` / `SMTP_PORT` | **required** host; port `587` (STARTTLS, required) or `465` (TLS) |
+| `SMTP_SECURE` | leave unset (derived from the port) |
+| `SMTP_USER` / `SMTP_PASS` | the provider's SMTP credentials (both or neither) |
+| `MAIL_FROM` | **required**, e.g. `Rhoyards <no-reply@example.com>` |
 | `UPLOAD_DIR` | absolute path on the persistent disk, e.g. `/var/lib/rhoyards/uploads` |
 | `MAX_UPLOAD_MB` | default 5; keep the proxy's request-size limit a little above it |
 | `BUSINESS_TIMEZONE` | `Africa/Lagos` (defines the business day for journal dates) |
@@ -62,7 +70,7 @@ npm run db:seed -w @rhoyards/api        # first install only: roles, chart of ac
 
 Migrations also install the database guards (triggers and CHECK constraints) that keep the ledger, stock and documents consistent even if application code is wrong. Never apply schema changes by hand.
 
-After the first sign-in (the owner must change the password), set the business details, VAT registration and pricing mode, payment methods, delivery options, bank-transfer instructions and opening balances (Accounting → Opening balances; opening stock as an opening-stock adjustment).
+At the first sign-in the owner sets up an authenticator app (two-step sign-in is required for every staff account), saves the backup codes and changes the password. Then set the business details, VAT registration and pricing mode, payment methods, delivery options, bank-transfer instructions and opening balances (Accounting → Opening balances; opening stock as an opening-stock adjustment).
 
 ## 5. Run the API
 
@@ -147,6 +155,8 @@ Caddy sets `X-Forwarded-For`, so `TRUST_PROXY=1`. The API adds its own strict he
 - [ ] `npm run check` (typecheck, lint, unit and integration tests against the test database) and `npm run e2e` pass
 - [ ] `npm audit --omit=dev` reviewed (see [SECURITY.md](SECURITY.md) for accepted items)
 - [ ] `NODE_ENV=production`, `TRUST_PROXY` set, `API_DOCS_ENABLED` and `PAYMENT_TEST_ENABLED` unset, `SEED_OWNER_*` removed
+- [ ] `TWO_FACTOR_KEY` generated and stored safely; SMTP settings, `MAIL_FROM`, `BACKOFFICE_URL` and `STOREFRONT_URL` set; a "Forgot password" email arrives and its link opens the right site
+- [ ] With several instances: `UPLOAD_DIR` is shared, and the load balancer health-checks `/api/v1/health/ready`
 - [ ] Migrations applied before the new API version starts
 - [ ] Health check green; sign in to the back office; open the dashboard; place a test order with a bank transfer and cancel it
 - [ ] Backups configured and a restore tested

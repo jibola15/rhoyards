@@ -21,7 +21,7 @@ Request pipeline, in order (`src/app.ts`):
 2. `helmet` — security headers incl. CSP; `x-powered-by` disabled.
 3. `cors` — explicit origin allowlist from `CORS_ORIGINS`, credentials enabled.
 4. `express.json` — 1 MB body limit.
-5. `cookie-parser`, then a rate limiter on `/api` (300 req/min per IP; login has its own limit of `LOGIN_RATE_LIMIT` per 15 min).
+5. `cookie-parser`, then a rate limiter on `/api` (300 req/min per IP; sign-in, codes and password reset have their own limits per 15 min). Counters are in PostgreSQL (`RATE_LIMIT_STORE=database`, the production default) so every API instance shares them.
 6. OpenAPI: `/api/openapi.json` and Swagger UI at `/api/docs` (off by default in production).
 7. `/api/v1/health` (liveness) and `/api/v1/health/ready` (database reachable) — unauthenticated.
 8. For everything else under `/api/v1`: **origin check → session → CSRF**, then module routers, each route declaring its permission.
@@ -29,14 +29,20 @@ Request pipeline, in order (`src/app.ts`):
 
 ## Authentication and authorisation
 
-- **Passwords:** argon2id (19 MiB, t=2). Minimum 10 characters. Unknown emails run a dummy verification so timing does not reveal valid accounts; all failures return the same message.
-- **Lockout:** 5 consecutive failures lock the account for 15 minutes.
+- **Sign-in, step 1:** email or username (`users.username`, never containing `@`) + password → `POST /auth/login` returns a challenge (`login_challenges`, 10 minutes, token hash only), never a session. Unknown accounts run a dummy verification so timing does not reveal them; all failures return the same message.
+- **Sign-in, step 2 (required):** `POST /auth/login/two-factor` with a 6-digit TOTP code (`src/modules/auth/totp.ts`, ±1 step, each step accepted once via `totp_last_step`) or a backup code → session cookie. Someone without an authenticator gets `TWO_FACTOR_SETUP` instead (a new secret and otpauth URI for the QR code) and `POST /auth/login/two-factor-setup` turns it on and returns 10 backup codes once. Secrets are encrypted with AES-256-GCM (`src/lib/secret-box.ts`, key `TWO_FACTOR_KEY`). Each challenge allows 5 codes (reserved atomically before checking).
+- **Passwords:** argon2id (19 MiB, t=2). Minimum 10 characters. Forgotten passwords: `POST /auth/password-reset` (and `/store/auth/password-reset` for shoppers) answers 202 at once and emails a single-use 30-minute link in the background (`src/lib/mailer.ts`: SMTP, or `MAIL_OUTBOX_DIR` files in development).
+- **Lockout:** 5 consecutive failures (passwords or codes) lock the account for 15 minutes; only a completed sign-in resets the count.
 - **Sessions:** 32-byte random token in an `HttpOnly`, `SameSite=Lax` cookie (`__Host-rh_sid`, `Secure`, in production). Only its SHA-256 is stored. Idle timeout `SESSION_IDLE_MINUTES` (30), absolute `SESSION_ABSOLUTE_HOURS` (12). A new token is issued at every login.
 - **CSRF:** per-session synchronizer token returned by `/auth/login` and `/auth/me`, required as `X-CSRF-Token` on every state-changing request; compared in constant time. Cross-origin state-changing requests (by `Origin`) are rejected, which also covers login CSRF.
 - **Forced password change:** while `must_change_password` is set (seeded owner, admin-created or admin-reset accounts) the API allows only `/auth/me`, `/auth/logout` and `/auth/change-password`.
 - **RBAC:** `requirePermission(...)` on every protected route. Permissions are loaded from the database on each request, so role changes apply immediately. The Owner role implicitly holds every permission. Non-owners cannot grant roles or permissions they do not hold themselves, and cannot modify owner accounts; the last active owner cannot be disabled or demoted.
 - **Revocation:** logout, password change (other sessions), password reset and disabling a user revoke sessions server-side.
-- **Audit:** logins (success/failure/lockout), logouts, password changes, user/role/settings/tax/location changes are written to `audit_logs` with before/after snapshots inside the same transaction.
+- **Audit:** logins (success/failure/lockout, with the second-factor method), failed codes, two-step set-up/changes/resets, backup-code replacement, password-reset requests and completions, logouts, password changes, user/role/settings/tax/location changes are written to `audit_logs` with before/after snapshots inside the same transaction.
+
+## Running several API instances
+
+Every instance runs the same code and the same timers. `src/lib/jobs.ts` `runScheduledJob(name, interval, job)` opens a transaction, takes `pg_try_advisory_xact_lock` for the job (transaction-scoped, so it works behind Neon's PgBouncer pooler and is released even if the process dies), and skips the run if `scheduled_jobs` shows the job already ran within the interval. So each job runs once per interval across all instances, and a failure is recorded (`last_status`, `last_error`) without being retried at once elsewhere. Rate limits use `PostgresRateLimitStore` (`src/lib/rate-limit-store.ts`), one upsert per request on `rate_limits`. Everything else that matters (sessions, sign-in challenges, idempotency keys, stock reservations) was already in the database. Uploaded files are the one thing on local disk: share `UPLOAD_DIR` between instances.
 
 ## Inventory engine
 

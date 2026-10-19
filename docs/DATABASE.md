@@ -61,6 +61,7 @@ Schema source: [`apps/api/prisma/schema.prisma`](../apps/api/prisma/schema.prism
 | 6 | Accounting | no new tables: `fiscal_years.closed_at` / `closed_by_id`; index on `journal_entries (status, entry_date)` for the statements |
 | 7 | Online store | `customer_accounts` (storefront sign-in), `customer_addresses`, `shipping_methods`, `online_orders` + `online_order_items` (reservation status and deadline on the order), `order_status_history`, `payment_attempts`, `payment_webhook_events`; `sessions.customer_account_id`; `sales.shipping_amount` |
 | 8 | After-sales and money | `sale_returns` + `sale_return_items`, `customer_receipts` + `customer_receipt_allocations`, `expense_categories`, `expenses` + `expense_attachments`, `bank_reconciliations` + `bank_reconciliation_lines`; `sales.amount_settled`; `online_orders.deposit_refund_journal_id`; order status REFUNDED |
+| 11 | Sign-in security and scaling | `users.username` (optional, unique) and `totp_secret_enc` / `totp_enabled_at` / `totp_last_step`; `user_backup_codes` (hashes); `login_challenges` (the step between password and code; token hash only); `password_reset_tokens` (staff or shopper; token hash only); `rate_limits` (shared counters); `scheduled_jobs` (last run of each background job) |
 
 ### Inventory model
 
@@ -131,10 +132,14 @@ Defined in `prisma/migrations/20261018120100_phase2_integrity_guards/migration.s
 | `expenses_amounts_chk` / `_guard_trg` / `expense_attachments_guard_trg` | total = net + VAT; a posted expense has its journal and cannot change, nor can its attachments |
 | `bank_reconciliations_one_open_per_account` / `_guard_trg` / `bank_reconciliation_lines_guard_trg` | one reconciliation in progress per account; completed ones and their lines are final |
 | `bank_reconciliation_lines.journal_line_id` UNIQUE | a ledger line is cleared once, ever |
+| `users_username_chk` | usernames are lower case, 3–32 of `a-z 0-9 . _ -`, never containing `@` (so a sign-in name is never mistaken for an email) |
+| `users_totp_chk` | an authenticator secret and its set-up date exist together or not at all |
+| `password_reset_tokens_owner_chk` | a reset link belongs to exactly one staff user or one shopper account, matching its realm |
+| `login_challenges_secret_chk` | only set-up challenges carry a (pending, encrypted) secret |
 
 ## Sessions
 
-`sessions` stores only the SHA-256 hash of the random session token, plus the CSRF token, idle and absolute expiry. Revocation sets `revoked_at`; logout, password change, password reset and disabling a user all revoke.
+`sessions` stores only the SHA-256 hash of the random session token, plus the CSRF token, idle and absolute expiry. Revocation sets `revoked_at`; logout, password change, password reset, moving to a new authenticator, an administrator's two-step reset and disabling a user all revoke. A staff session is created only after the second sign-in step (`login_challenges`). Hourly housekeeping deletes old sessions, expired challenges and reset links, and expired rate-limit counters.
 
 ## Seed data
 

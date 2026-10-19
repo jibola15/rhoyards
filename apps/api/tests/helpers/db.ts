@@ -2,7 +2,10 @@ import type { RoleCode } from '@rhoyards/shared';
 import { seedBase } from '../../prisma/seed/base';
 import { getPrisma } from '../../src/lib/prisma';
 import { forgetSystemUser } from '../../src/lib/system-user';
+import { loadEnv } from '../../src/config/env';
+import { encryptSecret } from '../../src/lib/secret-box';
 import { hashPassword } from '../../src/modules/auth/password';
+import { generateTotpSecret } from '../../src/modules/auth/totp';
 
 /**
  * Empties every table in the test database and re-seeds reference data.
@@ -36,10 +39,13 @@ const passwordHashCache = new Map<string, Promise<string>>();
 
 export const TEST_PASSWORD = 'correct-horse-battery';
 
-/** Creates an active staff user holding one role, ready to log in. */
+/**
+ * Creates an active staff user holding one role, ready to log in. Two-factor is already set up (with `totpSecret`)
+ * unless `twoFactor: false`, in which case the first sign-in sets it up.
+ */
 export async function createStaff(
   roleCode: RoleCode | string,
-  opts: { password?: string; mustChangePassword?: boolean; fullName?: string } = {},
+  opts: { password?: string; mustChangePassword?: boolean; fullName?: string; username?: string; twoFactor?: boolean } = {},
 ) {
   const prisma = getPrisma();
   const password = opts.password ?? TEST_PASSWORD;
@@ -47,14 +53,17 @@ export async function createStaff(
   counter += 1;
   const email = `${roleCode.toLowerCase()}.${counter}.${Date.now()}@test.local`;
   const role = await prisma.role.findUniqueOrThrow({ where: { code: roleCode } });
+  const totpSecret = opts.twoFactor === false ? null : generateTotpSecret();
   const user = await prisma.user.create({
     data: {
       email,
+      username: opts.username ?? null,
+      ...(totpSecret ? { totpSecretEnc: encryptSecret(totpSecret, loadEnv({ NODE_ENV: 'test' }).TWO_FACTOR_KEY), totpEnabledAt: new Date() } : {}),
       fullName: opts.fullName ?? `${roleCode} User ${counter}`,
       passwordHash: await passwordHashCache.get(password)!,
       mustChangePassword: opts.mustChangePassword ?? false,
       roles: { create: { roleId: role.id } },
     },
   });
-  return { user, email, password };
+  return { user, email, password, totpSecret };
 }

@@ -2,7 +2,7 @@
 
 Inventory, in-store POS, online store, purchasing, expenses and double-entry accounting for a cosmetics retailer with one physical store and an online shop.
 
-> **Status:** all ten phases complete — ready for a first production deployment (see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)). Back office: catalogue and stock, purchasing, point of sale, online orders, returns and refunds, customers and payments, expenses, accounting with period and year-end close, financial statements, reconciliation, dashboard and reports, audit log. Storefront: catalogue, cart, customer accounts, checkout with stock reservations shared with the till, bank-transfer and card-gateway payments, order tracking. See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) for the roadmap and decisions log.
+> **Status:** all ten phases complete — ready for a first production deployment (see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)). Back office: catalogue and stock, purchasing, point of sale, online orders, returns and refunds, customers and payments, expenses, accounting with period and year-end close, financial statements, reconciliation, dashboard and reports, audit log; staff sign in with email or username plus a required authenticator-app code, and reset forgotten passwords by email. Storefront: catalogue, cart, customer accounts, checkout with stock reservations shared with the till, bank-transfer and card-gateway payments, order tracking, password reset. The API can run as several instances behind a load balancer. See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) for the roadmap and decisions log.
 
 ## Repository layout
 

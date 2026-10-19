@@ -72,6 +72,27 @@ describe('staff user management', () => {
     expect(dup.status).toBe(409);
   });
 
+  it('gives users an optional unique username they can sign in with', async () => {
+    const created = await owner.agent.post('/api/v1/users').set('X-CSRF-Token', owner.csrf).send(newUser({ username: 'Chi.Nwosu' }));
+    expect(created.status).toBe(201);
+    expect(created.body.data).toMatchObject({ username: 'chi.nwosu', twoFactorEnabled: false });
+
+    const taken = await owner.agent.post('/api/v1/users').set('X-CSRF-Token', owner.csrf).send(newUser({ username: 'chi.nwosu' }));
+    expect(taken.status).toBe(409);
+    expect(taken.body.error.details).toEqual({ field: 'username' });
+    const emailLike = await owner.agent.post('/api/v1/users').set('X-CSRF-Token', owner.csrf).send(newUser({ username: 'chi@shop' }));
+    expect(emailLike.status).toBe(400);
+
+    const id = created.body.data.id as string;
+    const renamed = await owner.agent.patch(`/api/v1/users/${id}`).set('X-CSRF-Token', owner.csrf).send({ username: 'chinwosu' });
+    expect(renamed.body.data.username).toBe('chinwosu');
+    expect((await owner.agent.get('/api/v1/users').query({ q: 'chinwo' })).body.data[0].id).toBe(id);
+    const login = await owner.agent.post('/api/v1/auth/login').set('X-CSRF-Token', owner.csrf).send({ identifier: 'chinwosu', password: 'temporary-pass-123' });
+    expect(login.body.data.next).toBe('TWO_FACTOR_SETUP');
+    const cleared = await owner.agent.patch(`/api/v1/users/${id}`).set('X-CSRF-Token', owner.csrf).send({ username: null });
+    expect(cleared.body.data.username).toBeNull();
+  });
+
   it('blocks privilege escalation by non-owners', async () => {
     const grantOwner = await manager.agent
       .post('/api/v1/users')

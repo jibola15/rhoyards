@@ -29,6 +29,7 @@ export function toAuthUser(user: UserWithAuth, permissions: ReadonlySet<string>)
   return {
     id: user.id,
     email: user.email,
+    username: user.username,
     fullName: user.fullName,
     mustChangePassword: user.mustChangePassword,
     roles: user.roles.map((r) => ({ id: r.role.id, code: r.role.code, name: r.role.name })),

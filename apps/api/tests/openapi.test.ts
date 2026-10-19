@@ -35,7 +35,7 @@ function servedRoutes(): string[] {
 
 describe('OpenAPI document', () => {
   it('documents every route the API serves', () => {
-    const doc = buildOpenApiDocument() as { paths: Record<string, Record<string, unknown>> };
+    const doc = buildOpenApiDocument() as unknown as { paths: Record<string, Record<string, unknown>> };
     const documented = new Set(Object.entries(doc.paths).flatMap(([path, ops]) => Object.keys(ops).map((m) => `${m.toUpperCase()} ${path}`)));
     const served = servedRoutes();
     expect(served.length).toBeGreaterThan(150);

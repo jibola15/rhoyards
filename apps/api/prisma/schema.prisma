@@ -24,6 +24,8 @@ enum UserStatus {
 model User {
   id                 String     @id @default(uuid()) @db.Uuid
   email              String     @unique
+  /// Optional sign-in name (lower case); staff sign in with their email or their username.
+  username           String?    @unique
   passwordHash       String     @map("password_hash")
   fullName           String     @map("full_name")
   status             UserStatus @default(ACTIVE)
@@ -32,20 +34,28 @@ model User {
   lockedUntil        DateTime?  @map("locked_until") @db.Timestamptz(3)
   lastLoginAt        DateTime?  @map("last_login_at") @db.Timestamptz(3)
   passwordChangedAt  DateTime   @default(now()) @map("password_changed_at") @db.Timestamptz(3)
+  /// Authenticator-app (TOTP) secret, AES-256-GCM encrypted. Null until the user has set up two-factor sign-in.
+  totpSecretEnc      String?    @map("totp_secret_enc")
+  totpEnabledAt      DateTime?  @map("totp_enabled_at") @db.Timestamptz(3)
+  /// Last 30-second time step a code was accepted for: a code can be used once.
+  totpLastStep       Int?       @map("totp_last_step")
   createdById        String?    @map("created_by_id") @db.Uuid
   createdAt          DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt          DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  createdBy      User?          @relation("UserCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
-  createdUsers   User[]         @relation("UserCreatedBy")
-  roles          UserRole[]     @relation("UserRoles")
-  rolesAssigned  UserRole[]     @relation("UserRoleAssignedBy")
-  locations      UserLocation[]
-  sessions       Session[]
-  auditLogs      AuditLog[]
-  journalCreated JournalEntry[] @relation("JournalCreatedBy")
-  journalPosted  JournalEntry[] @relation("JournalPostedBy")
-  settings       Setting[]
+  createdBy       User?                @relation("UserCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  createdUsers    User[]               @relation("UserCreatedBy")
+  roles           UserRole[]           @relation("UserRoles")
+  rolesAssigned   UserRole[]           @relation("UserRoleAssignedBy")
+  locations       UserLocation[]
+  sessions        Session[]
+  auditLogs       AuditLog[]
+  backupCodes     UserBackupCode[]
+  loginChallenges LoginChallenge[]
+  passwordResets  PasswordResetToken[]
+  journalCreated  JournalEntry[]       @relation("JournalCreatedBy")
+  journalPosted   JournalEntry[]       @relation("JournalPostedBy")
+  settings        Setting[]
 
   filesUploaded        File[]
   productsCreated      Product[]
@@ -258,6 +268,93 @@ model DocumentSequence {
   padding   Int    @default(6)
 
   @@map("document_sequences")
+}
+
+/// One-time recovery codes for two-factor sign-in (SHA-256 hashes only).
+model UserBackupCode {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  codeHash  String    @map("code_hash")
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, codeHash])
+  @@map("user_backup_codes")
+}
+
+enum LoginChallengeKind {
+  /// Password accepted; waiting for an authenticator or backup code.
+  TWO_FACTOR
+  /// Password accepted; the user must set up an authenticator before the first session.
+  TWO_FACTOR_SETUP
+  /// A signed-in user is moving to a new authenticator.
+  AUTHENTICATOR_CHANGE
+}
+
+/// The half-finished step of a staff sign-in (or authenticator change). Only the token hash is stored.
+model LoginChallenge {
+  id               String             @id @default(uuid()) @db.Uuid
+  tokenHash        String             @unique @map("token_hash")
+  userId           String             @map("user_id") @db.Uuid
+  kind             LoginChallengeKind
+  /// Encrypted secret being set up (TWO_FACTOR_SETUP / AUTHENTICATOR_CHANGE).
+  pendingSecretEnc String?            @map("pending_secret_enc")
+  attempts         Int                @default(0)
+  ip               String?
+  createdAt        DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  expiresAt        DateTime           @map("expires_at") @db.Timestamptz(3)
+  consumedAt       DateTime?          @map("consumed_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("login_challenges")
+}
+
+/// Single-use "forgot password" links for staff (realm STAFF) or shoppers (realm CUSTOMER). Only the hash is stored.
+model PasswordResetToken {
+  id                String       @id @default(uuid()) @db.Uuid
+  tokenHash         String       @unique @map("token_hash")
+  realm             SessionRealm
+  userId            String?      @map("user_id") @db.Uuid
+  customerAccountId String?      @map("customer_account_id") @db.Uuid
+  ip                String?
+  createdAt         DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  expiresAt         DateTime     @map("expires_at") @db.Timestamptz(3)
+  usedAt            DateTime?    @map("used_at") @db.Timestamptz(3)
+
+  user            User?            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  customerAccount CustomerAccount? @relation(fields: [customerAccountId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([customerAccountId])
+  @@index([expiresAt])
+  @@map("password_reset_tokens")
+}
+
+/// Request counters shared by every API instance (rate limiting).
+model RateLimitBucket {
+  key     String   @id
+  hits    Int
+  resetAt DateTime @map("reset_at") @db.Timestamptz(3)
+
+  @@index([resetAt])
+  @@map("rate_limits")
+}
+
+/// Background jobs: when each last ran, so that with several API instances a job runs once per interval.
+model ScheduledJob {
+  name           String    @id
+  lastStartedAt  DateTime? @map("last_started_at") @db.Timestamptz(3)
+  lastFinishedAt DateTime? @map("last_finished_at") @db.Timestamptz(3)
+  lastStatus     String?   @map("last_status")
+  lastError      String?   @map("last_error")
+  runBy          String?   @map("run_by")
+
+  @@map("scheduled_jobs")
 }
 
 model IdempotencyKey {
@@ -1442,8 +1539,9 @@ model CustomerAccount {
   createdAt        DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  customer Customer  @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  sessions Session[]
+  customer       Customer             @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  sessions       Session[]
+  passwordResets PasswordResetToken[]
 
   @@map("customer_accounts")
 }

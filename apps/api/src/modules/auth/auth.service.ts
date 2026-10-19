@@ -1,32 +1,34 @@
-import type { AuthSession, ChangePasswordInput, LoginInput } from '@rhoyards/shared';
+import type { AuthSession, ChangePasswordInput, LoginInput, LoginStep } from '@rhoyards/shared';
 import { writeAudit, type RequestContext } from '../../lib/audit';
 import { businessRule, unauthenticated } from '../../lib/errors';
 import { getPrisma, transaction } from '../../lib/prisma';
-import type { AuthContext, SessionConfig } from './auth.types';
-import { authUserInclude, effectivePermissions, toAuthUser } from './auth-user';
+import type { AuthConfig, AuthContext } from './auth.types';
 import { hashPassword, verifyAgainstDummy, verifyPassword } from './password';
-import { createStaffSession, revokeSession, revokeUserSessions, type NewSession } from './session.service';
+import { revokeSession, revokeUserSessions } from './session.service';
+import { countFailedAttempt, startSignInChallenge } from './two-factor.service';
 
-export const MAX_FAILED_LOGINS = 5;
-export const LOCKOUT_MINUTES = 15;
-const INVALID_LOGIN = 'Invalid email or password, or the account is temporarily locked';
+export { LOCKOUT_MINUTES, MAX_FAILED_LOGINS } from './two-factor.service';
+export const INVALID_LOGIN = 'Invalid email, username or password, or the account is temporarily locked';
 
 interface LoginMeta extends RequestContext {
   userAgent?: string;
 }
 
-export async function login(
-  input: LoginInput,
-  meta: LoginMeta,
-  cfg: SessionConfig,
-): Promise<{ session: NewSession; auth: AuthSession }> {
+/** Staff sign in with their email or their username; usernames never contain "@". */
+export const identifierWhere = (identifier: string) => (identifier.includes('@') ? { email: identifier } : { username: identifier });
+
+/**
+ * First step of staff sign-in: checks the password. On success no session is created yet — the result says which
+ * second step (authenticator code, or setting one up) completes the sign-in.
+ */
+export async function login(input: LoginInput, meta: LoginMeta, cfg: AuthConfig): Promise<LoginStep> {
   const prisma = getPrisma();
-  const user = await prisma.user.findUnique({ where: { email: input.email }, include: authUserInclude });
+  const user = await prisma.user.findUnique({ where: identifierWhere(input.identifier) });
   const now = new Date();
 
   if (!user) {
     await verifyAgainstDummy(input.password);
-    await writeAudit(prisma, meta, { action: 'auth.login_failed', entityType: 'user', after: { email: input.email } });
+    await writeAudit(prisma, meta, { action: 'auth.login_failed', entityType: 'user', after: { identifier: input.identifier } });
     throw unauthenticated(INVALID_LOGIN);
   }
 
@@ -38,16 +40,7 @@ export async function login(
 
   const passwordOk = await verifyPassword(user.passwordHash, input.password);
   if (!passwordOk || user.status !== 'ACTIVE') {
-    if (!passwordOk) {
-      const failed = user.failedLoginCount + 1;
-      const lock = failed >= MAX_FAILED_LOGINS;
-      await prisma.user.update({
-        where: { id: user.id },
-        data: lock
-          ? { failedLoginCount: 0, lockedUntil: new Date(now.getTime() + LOCKOUT_MINUTES * 60_000) }
-          : { failedLoginCount: failed },
-      });
-    }
+    if (!passwordOk) await countFailedAttempt(user.id, now);
     await writeAudit(prisma, meta, {
       action: passwordOk ? 'auth.login_disabled' : 'auth.login_failed',
       entityType: 'user',
@@ -56,25 +49,9 @@ export async function login(
     throw unauthenticated(INVALID_LOGIN);
   }
 
-  const session = await transaction(async (tx) => {
-    await tx.user.update({
-      where: { id: user.id },
-      data: { lastLoginAt: now, failedLoginCount: 0, lockedUntil: null },
-    });
-    const created = await createStaffSession(tx, user.id, { ...meta }, cfg);
-    await writeAudit(tx, { ...meta, actorId: user.id }, { action: 'auth.login', entityType: 'user', entityId: user.id });
-    return created;
-  });
-
-  const permissions = effectivePermissions(user);
-  return {
-    session,
-    auth: {
-      user: toAuthUser(user, permissions),
-      csrfToken: session.csrfToken,
-      expiresAt: session.expiresAt.toISOString(),
-    },
-  };
+  // The failure count is cleared only once the second factor succeeds, so codes cannot be guessed by re-entering
+  // the password between attempts.
+  return startSignInChallenge(user, meta, cfg);
 }
 
 export async function logout(auth: AuthContext, ctx: RequestContext): Promise<void> {

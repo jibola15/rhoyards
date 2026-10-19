@@ -29,7 +29,7 @@ async function main() {
     sessionId: 'seed',
     csrfToken: 'seed',
     expiresAt: new Date(),
-    user: { id: owner.id, email: owner.email, fullName: owner.fullName, mustChangePassword: false, roles: [], locationIds: [], permissions: [] } as AuthUser,
+    user: { id: owner.id, email: owner.email, username: owner.username, fullName: owner.fullName, mustChangePassword: false, roles: [], locationIds: [], permissions: [] } as AuthUser,
     permissions: new Set(ALL_PERMISSIONS),
   };
 

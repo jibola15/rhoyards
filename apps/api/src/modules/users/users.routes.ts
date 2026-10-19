@@ -6,7 +6,7 @@ import { listEnvelope } from '../../lib/pagination';
 import { parse } from '../../lib/validation';
 import { registry } from '../../openapi/registry';
 import { requirePermission } from '../auth/auth.middleware';
-import { createUser, getUser, listUsers, resetUserPassword, updateUser } from './users.service';
+import { createUser, getUser, listUsers, resetUserPassword, resetUserTwoFactor, updateUser } from './users.service';
 
 const idParams = z.object({ id: z.uuid() });
 
@@ -50,6 +50,14 @@ registry.registerPath({
   request: { params: idParams, body: { content: { 'application/json': { schema: resetPasswordSchema } } } },
   responses: { 204: { description: 'Password reset' } },
 });
+registry.registerPath({
+  method: 'post',
+  path: '/users/{id}/reset-two-factor',
+  tags: ['Users'],
+  summary: "Remove a user's authenticator (lost phone): they are signed out and set up a new one at next sign-in (users.manage)",
+  request: { params: idParams },
+  responses: { 204: { description: 'Two-factor reset' } },
+});
 
 export const usersRouter = Router();
 
@@ -79,5 +87,11 @@ usersRouter.post('/users/:id/reset-password', ...requirePermission('users.manage
   const { id } = parse(idParams, req.params);
   const { newPassword } = parse(resetPasswordSchema, req.body);
   await resetUserPassword(id, newPassword, req.auth!, requestContext(req));
+  res.status(204).end();
+});
+
+usersRouter.post('/users/:id/reset-two-factor', ...requirePermission('users.manage'), async (req, res) => {
+  const { id } = parse(idParams, req.params);
+  await resetUserTwoFactor(id, req.auth!, requestContext(req));
   res.status(204).end();
 });

@@ -33,6 +33,7 @@ export function sessionFor(permissions: string[], overrides: Partial<AuthSession
     user: {
       id: '00000000-0000-4000-8000-000000000001',
       email: 'owner@test.local',
+      username: null,
       fullName: 'Test Owner',
       mustChangePassword: false,
       roles: [{ id: 'r1', code: 'OWNER', name: 'Owner / Administrator' }],

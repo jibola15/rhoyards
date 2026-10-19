@@ -25,6 +25,9 @@ export type CustomerRegisterInput = z.infer<typeof customerRegisterSchema>;
 
 export const customerLoginSchema = z.object({ email, password: z.string().min(1, 'Enter your password').max(128) });
 
+export const customerPasswordResetRequestSchema = z.object({ email });
+export const customerPasswordResetConfirmSchema = z.object({ token: z.string().min(20).max(200), newPassword: password });
+
 export interface StoreCustomer {
   id: string;
   name: string;

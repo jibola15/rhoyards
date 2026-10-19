@@ -7,6 +7,8 @@ import {
   cartQuoteSchema,
   checkoutSchema,
   customerLoginSchema,
+  customerPasswordResetConfirmSchema,
+  customerPasswordResetRequestSchema,
   customerRegisterSchema,
   storeProductQuerySchema,
   type StoreAddress,
@@ -14,12 +16,15 @@ import {
 } from '@rhoyards/shared';
 import type { Env } from '../../config/env';
 import { requestContext } from '../../lib/audit';
+import type { Mailer } from '../../lib/mailer';
 import { notFound } from '../../lib/errors';
 import { withIdempotency } from '../../lib/idempotency';
 import { getPrisma } from '../../lib/prisma';
 import { parse } from '../../lib/validation';
 import { createRateLimiter } from '../../middleware/rate-limit';
 import { registry } from '../../openapi/registry';
+import type { AuthConfig } from '../auth/auth.types';
+import { confirmCustomerPasswordReset, requestCustomerPasswordReset } from '../auth/password-reset.service';
 import { cancelOrder, getCustomerOrder, listCustomerOrders, placeOrder, restartPayment } from '../orders/orders.service';
 import { enabledProviders } from '../payments/providers';
 import { receiveTestWebhook, testGatewayEvent } from '../payments/webhooks';
@@ -52,6 +57,8 @@ const docs: [string, 'get' | 'post' | 'delete', string][] = [
   ['/store/auth/login', 'post', 'Customer sign-in (separate cookie and sessions from staff)'],
   ['/store/auth/me', 'get', 'Signed-in customer and CSRF token'],
   ['/store/auth/logout', 'post', 'Sign out'],
+  ['/store/auth/password-reset', 'post', 'Forgot password: emails a single-use reset link if an account matches (always 202)'],
+  ['/store/auth/password-reset/confirm', 'post', 'Set a new password with a reset token; signs out every device'],
   ['/store/addresses', 'get', 'Saved delivery addresses'],
   ['/store/addresses/{id}', 'delete', 'Remove a saved address'],
   ['/store/checkout', 'post', 'Place an order: reserves stock and starts payment (Idempotency-Key required)'],
@@ -78,11 +85,14 @@ const toAddress = (a: { id: string; recipient: string; phone: string; line1: str
 });
 
 /** The public storefront API, mounted at /api/v1/store ahead of the staff session and CSRF middleware. */
-export function storeRouter(env: Env, secureCookie: boolean) {
+export function storeRouter(env: Env, auth: AuthConfig, mailer: Mailer) {
   const router = Router();
+  const secureCookie = auth.session.secureCookie;
   const cookieName = customerCookieName(secureCookie);
-  const authLimiter = createRateLimiter({ windowMs: 15 * 60_000, limit: env.LOGIN_RATE_LIMIT });
-  const checkoutLimiter = createRateLimiter({ windowMs: 10 * 60_000, limit: 30 });
+  const shared = env.RATE_LIMIT_STORE === 'database';
+  const authLimiter = createRateLimiter({ name: 'store-auth', windowMs: 15 * 60_000, limit: env.LOGIN_RATE_LIMIT, shared });
+  const resetLimiter = createRateLimiter({ name: 'store-password-reset', windowMs: 15 * 60_000, limit: env.LOGIN_RATE_LIMIT, shared });
+  const checkoutLimiter = createRateLimiter({ name: 'store-checkout', windowMs: 10 * 60_000, limit: 30, shared });
   router.use(loadCustomerSession(secureCookie), customerCsrf);
 
   // ── Catalogue (public) ────────────────────────────────────────────────
@@ -134,6 +144,18 @@ export function storeRouter(env: Env, secureCookie: boolean) {
   });
   router.post('/auth/logout', requireCustomer, async (req, res) => {
     await logoutCustomer(req.customer!.sessionId);
+    res.clearCookie(cookieName, { path: '/' });
+    res.status(204).end();
+  });
+  router.post('/auth/password-reset', resetLimiter, (req, res) => {
+    const { email } = parse(customerPasswordResetRequestSchema, req.body);
+    // Answer first, then look the account up: the response (and its timing) is the same whether or not it exists.
+    requestCustomerPasswordReset(email, requestContext(req), auth, mailer).catch((err: unknown) => req.log.error({ err }, 'Password reset request failed'));
+    res.status(202).json({ data: { message: 'If an account matches, a link to reset the password has been emailed.' } });
+  });
+  router.post('/auth/password-reset/confirm', resetLimiter, async (req, res) => {
+    const notice = await confirmCustomerPasswordReset(parse(customerPasswordResetConfirmSchema, req.body), requestContext(req));
+    mailer.send(notice).catch((err: unknown) => req.log.error({ err }, 'Sending email failed'));
     res.clearCookie(cookieName, { path: '/' });
     res.status(204).end();
   });

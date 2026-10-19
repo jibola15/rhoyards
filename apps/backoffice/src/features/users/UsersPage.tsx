@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { KeyRound, Pencil, Plus, Search } from 'lucide-react';
+import { KeyRound, Pencil, Plus, Search, ShieldOff } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import type { UserSummary } from '@rhoyards/shared';
 import {
   Badge,
@@ -15,19 +16,23 @@ import {
   TableHead,
   TableHeader,
   TableRow,
+  toast,
 } from '@rhoyards/ui';
 import { useAuth } from '../../auth/AuthProvider';
+import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { EmptyState, PageHeader, Pagination, QueryError } from '../../components/page';
+import { api } from '../../lib/api';
 import { formatDateTime } from '../../lib/format';
 import { useDebouncedValue } from '../../lib/use-debounced-value';
-import { useUsers } from './api';
+import { useUsers, usersKeys } from './api';
 import { ResetPasswordDialog } from './ResetPasswordDialog';
 import { UserFormDialog } from './UserFormDialog';
 
 const PAGE_SIZE = 20;
 
 export function UsersPage() {
-  const { can } = useAuth();
+  const { can, session } = useAuth();
+  const queryClient = useQueryClient();
   const canManage = can('users.manage');
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<'' | 'ACTIVE' | 'DISABLED'>('');
@@ -38,6 +43,7 @@ export function UsersPage() {
   const [editing, setEditing] = useState<UserSummary | undefined>();
   const [formOpen, setFormOpen] = useState(false);
   const [resetting, setResetting] = useState<UserSummary | null>(null);
+  const [resettingTwoFactor, setResettingTwoFactor] = useState<UserSummary | null>(null);
 
   const openCreate = () => {
     setEditing(undefined);
@@ -66,8 +72,8 @@ export function UsersPage() {
               <Search className="pointer-events-none absolute left-2.5 top-2.5 size-4 text-muted-foreground" aria-hidden="true" />
               <Input
                 type="search"
-                aria-label="Search by name or email"
-                placeholder="Search by name or email"
+                aria-label="Search by name, email or username"
+                placeholder="Search by name, email or username"
                 className="pl-8"
                 value={search}
                 onChange={(e) => {
@@ -119,7 +125,10 @@ export function UsersPage() {
                     <TableRow key={u.id}>
                       <TableCell>
                         <div className="font-medium">{u.fullName}</div>
-                        <div className="text-xs text-muted-foreground">{u.email}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {u.email}
+                          {u.username && <> · {u.username}</>}
+                        </div>
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-wrap gap-1">
@@ -137,6 +146,9 @@ export function UsersPage() {
                         {u.status === 'ACTIVE' ? <Badge variant="success">Active</Badge> : <Badge variant="outline">Disabled</Badge>}
                         {u.mustChangePassword && u.status === 'ACTIVE' && (
                           <span className="ml-1 text-xs text-muted-foreground">password change pending</span>
+                        )}
+                        {!u.twoFactorEnabled && u.status === 'ACTIVE' && (
+                          <span className="ml-1 text-xs text-muted-foreground">two-step sign-in not set up yet</span>
                         )}
                       </TableCell>
                       <TableCell className="hidden lg:table-cell">{formatDateTime(u.lastLoginAt)}</TableCell>
@@ -157,6 +169,17 @@ export function UsersPage() {
                             <Button variant="ghost" size="icon" aria-label={`Reset password for ${u.fullName}`} onClick={() => setResetting(u)}>
                               <KeyRound />
                             </Button>
+                            {u.twoFactorEnabled && u.id !== session?.user.id && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                aria-label={`Reset two-step sign-in for ${u.fullName}`}
+                                title="Reset two-step sign-in (lost phone)"
+                                onClick={() => setResettingTwoFactor(u)}
+                              >
+                                <ShieldOff />
+                              </Button>
+                            )}
                           </div>
                         </TableCell>
                       )}
@@ -179,6 +202,19 @@ export function UsersPage() {
 
       <UserFormDialog open={formOpen} onOpenChange={setFormOpen} {...(editing ? { user: editing } : {})} />
       <ResetPasswordDialog user={resetting} onOpenChange={(o) => !o && setResetting(null)} />
+      <ConfirmDialog
+        open={resettingTwoFactor !== null}
+        onOpenChange={(o) => !o && setResettingTwoFactor(null)}
+        title={`Reset two-step sign-in for ${resettingTwoFactor?.fullName ?? ''}?`}
+        description="Use this when they have lost their phone and backup codes. They are signed out everywhere and will set up a new authenticator app the next time they sign in with their password."
+        confirmLabel="Reset two-step sign-in"
+        destructive
+        onConfirm={async () => {
+          await api.post(`/users/${resettingTwoFactor!.id}/reset-two-factor`);
+          await queryClient.invalidateQueries({ queryKey: usersKeys.all });
+          toast.success('Two-step sign-in reset. They will set it up again at their next sign-in.');
+        }}
+      />
     </div>
   );
 }

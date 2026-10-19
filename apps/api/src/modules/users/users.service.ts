@@ -1,4 +1,4 @@
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import {
   OWNER_ROLE,
   type CreateUserInput,
@@ -15,13 +15,16 @@ import { SYSTEM_USER_EMAIL } from '../../lib/system-user';
 import type { AuthContext } from '../auth/auth.types';
 import { hashPassword } from '../auth/password';
 import { revokeUserSessions } from '../auth/session.service';
+import { clearTwoFactor } from '../auth/two-factor.service';
 
 const summarySelect = {
   id: true,
   email: true,
+  username: true,
   fullName: true,
   status: true,
   mustChangePassword: true,
+  totpEnabledAt: true,
   lastLoginAt: true,
   createdAt: true,
   roles: { select: { role: { select: { id: true, code: true, name: true } } } },
@@ -34,9 +37,11 @@ function toSummary(u: UserRow): UserSummary {
   return {
     id: u.id,
     email: u.email,
+    username: u.username,
     fullName: u.fullName,
     status: u.status,
     mustChangePassword: u.mustChangePassword,
+    twoFactorEnabled: u.totpEnabledAt !== null,
     lastLoginAt: u.lastLoginAt?.toISOString() ?? null,
     createdAt: u.createdAt.toISOString(),
     roles: u.roles.map((r) => r.role).sort((a, b) => a.name.localeCompare(b.name)),
@@ -54,6 +59,7 @@ export async function listUsers(query: z.infer<typeof userListQuerySchema>) {
           OR: [
             { fullName: { contains: query.q, mode: 'insensitive' } },
             { email: { contains: query.q, mode: 'insensitive' } },
+            { username: { contains: query.q, mode: 'insensitive' } },
           ],
         }
       : {}),
@@ -123,18 +129,33 @@ async function lockOwnerRole(tx: Prisma.TransactionClient) {
   await tx.$queryRaw`SELECT "id" FROM "roles" WHERE "code" = ${OWNER_ROLE} FOR UPDATE`;
 }
 
+const USERNAME_TAKEN = 'This username is already taken';
+
+async function assertUsernameFree(db: Db, username: string, exceptId?: string) {
+  const other = await db.user.findUnique({ where: { username }, select: { id: true } });
+  if (other && other.id !== exceptId) throw conflict(USERNAME_TAKEN, { field: 'username' });
+}
+
+/** A concurrent insert can still win the unique index: report it as the same field conflict. */
+function usernameRace(e: unknown): never {
+  if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') throw conflict(USERNAME_TAKEN, { field: 'username' });
+  throw e;
+}
+
 export async function createUser(input: CreateUserInput, actor: AuthContext, ctx: RequestContext) {
   const passwordHash = await hashPassword(input.password);
   return transaction(async (tx) => {
     if (await tx.user.findUnique({ where: { email: input.email }, select: { id: true } })) {
       throw conflict('A user with this email already exists', { field: 'email' });
     }
+    if (input.username) await assertUsernameFree(tx, input.username);
     await resolveRoles(tx, input.roleIds, actor);
     await assertLocations(tx, input.locationIds);
 
     const created = await tx.user.create({
       data: {
         email: input.email,
+        username: input.username ?? null,
         fullName: input.fullName,
         passwordHash,
         // The administrator chose this password, so the user must replace it at first login.
@@ -144,7 +165,7 @@ export async function createUser(input: CreateUserInput, actor: AuthContext, ctx
         locations: { create: [...new Set(input.locationIds)].map((locationId) => ({ locationId })) },
       },
       select: summarySelect,
-    });
+    }).catch(usernameRace);
     const summary = toSummary(created);
     await writeAudit(tx, ctx, { action: 'user.created', entityType: 'user', entityId: created.id, after: summary });
     return summary;
@@ -170,6 +191,7 @@ export async function updateUser(id: string, input: UpdateUserInput, actor: Auth
       nextRoleCodes = roles.map((r) => r.code);
     }
     if (input.locationIds) await assertLocations(tx, input.locationIds);
+    if (input.username) await assertUsernameFree(tx, input.username, id);
 
     const willBeActiveOwner = (input.status ?? before.status) === 'ACTIVE' && nextRoleCodes.includes(OWNER_ROLE);
     if (wasActiveOwner && !willBeActiveOwner) {
@@ -183,9 +205,10 @@ export async function updateUser(id: string, input: UpdateUserInput, actor: Auth
       where: { id },
       data: {
         ...(input.fullName !== undefined ? { fullName: input.fullName } : {}),
+        ...(input.username !== undefined ? { username: input.username } : {}),
         ...(input.status !== undefined ? { status: input.status } : {}),
       },
-    });
+    }).catch(usernameRace);
     if (input.roleIds) {
       await tx.userRole.deleteMany({ where: { userId: id } });
       await tx.userRole.createMany({
@@ -219,5 +242,23 @@ export async function resetUserPassword(id: string, newPassword: string, actor: 
     });
     await revokeUserSessions(tx, id);
     await writeAudit(tx, ctx, { action: 'user.password_reset', entityType: 'user', entityId: id });
+  });
+}
+
+/**
+ * For someone who lost their phone and backup codes: removes their authenticator and signs them out everywhere. They
+ * set up a new app at their next sign-in (after the password, so a reset alone does not let anyone else in).
+ */
+export async function resetUserTwoFactor(id: string, actor: AuthContext, ctx: RequestContext) {
+  await transaction(async (tx) => {
+    const target = await getUser(id, tx);
+    if (id === actor.user.id) {
+      throw businessRule('To change your own authenticator, use Account security (you will need your password).');
+    }
+    if (target.roles.some((r) => r.code === OWNER_ROLE) && !isOwner(actor)) {
+      throw forbidden("Only an owner can reset an owner's two-factor sign-in");
+    }
+    await clearTwoFactor(tx, id);
+    await writeAudit(tx, ctx, { action: 'user.two_factor_reset', entityType: 'user', entityId: id });
   });
 }

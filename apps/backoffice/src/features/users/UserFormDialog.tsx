@@ -3,7 +3,7 @@ import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
-import { createUserSchema, type UserSummary } from '@rhoyards/shared';
+import { createUserSchema, usernameSchema, type UserSummary } from '@rhoyards/shared';
 import {
   Alert,
   Button,
@@ -23,14 +23,20 @@ import { api } from '../../lib/api';
 import { applyServerErrors } from '../../lib/forms';
 import { useLocations, useRoles, usersKeys } from './api';
 
+/** Blank means no username (sign in with the email only). */
+const optionalUsername = z.union([z.literal(''), usernameSchema]);
+
+const createSchema = createUserSchema.extend({ username: optionalUsername });
+
 const editSchema = z.object({
   fullName: z.string().trim().min(1, 'Full name is required').max(120),
+  username: optionalUsername,
   status: z.enum(['ACTIVE', 'DISABLED']),
   roleIds: z.array(z.string()).min(1, 'Assign at least one role'),
   locationIds: z.array(z.string()),
 });
 
-type CreateValues = z.input<typeof createUserSchema>;
+type CreateValues = z.input<typeof createSchema>;
 type EditValues = z.infer<typeof editSchema>;
 type Values = CreateValues & Partial<EditValues>;
 
@@ -88,17 +94,18 @@ function UserForm({ user, onDone }: { user?: UserSummary | undefined; onDone: ()
   const [formError, setFormError] = useState<string | null>(null);
 
   const { register, handleSubmit, control, setError, formState } = useForm<Values>({
-    resolver: zodResolver((isEdit ? editSchema : createUserSchema) as unknown as z.ZodType<Values, Values>),
+    resolver: zodResolver((isEdit ? editSchema : createSchema) as unknown as z.ZodType<Values, Values>),
     defaultValues: user
       ? {
           email: user.email,
+          username: user.username ?? '',
           fullName: user.fullName,
           password: '',
           status: user.status,
           roleIds: user.roles.map((r) => r.id),
           locationIds: user.locations.map((l) => l.id),
         }
-      : { email: '', fullName: '', password: '', roleIds: [], locationIds: [], status: 'ACTIVE' },
+      : { email: '', username: '', fullName: '', password: '', roleIds: [], locationIds: [], status: 'ACTIVE' },
   });
 
   const mutation = useMutation({
@@ -106,12 +113,14 @@ function UserForm({ user, onDone }: { user?: UserSummary | undefined; onDone: ()
       user
         ? api.patch(`/users/${user.id}`, {
             fullName: values.fullName,
+            username: values.username || null,
             status: values.status,
             roleIds: values.roleIds,
             locationIds: values.locationIds,
           })
         : api.post('/users', {
             email: values.email,
+            ...(values.username ? { username: values.username } : {}),
             fullName: values.fullName,
             password: values.password,
             roleIds: values.roleIds,
@@ -123,7 +132,7 @@ function UserForm({ user, onDone }: { user?: UserSummary | undefined; onDone: ()
       onDone();
     },
     onError: (error) => {
-      setFormError(applyServerErrors(error, setError, ['email', 'fullName', 'password', 'roleIds', 'locationIds', 'status']));
+      setFormError(applyServerErrors(error, setError, ['email', 'username', 'fullName', 'password', 'roleIds', 'locationIds', 'status']));
     },
   });
 
@@ -135,6 +144,14 @@ function UserForm({ user, onDone }: { user?: UserSummary | undefined; onDone: ()
       {formError && <Alert variant="destructive">{formError}</Alert>}
       <Field id="fullName" label="Full name" error={formState.errors.fullName?.message}>
         <Input autoComplete="off" {...register('fullName')} />
+      </Field>
+      <Field
+        id="username"
+        label="Username (optional)"
+        description="Lets them sign in without typing their email. Letters, digits, dots, dashes or underscores."
+        error={formState.errors.username?.message}
+      >
+        <Input autoComplete="off" autoCapitalize="none" spellCheck={false} {...register('username')} />
       </Field>
       {isEdit ? (
         <Field id="status" label="Status" error={formState.errors.status?.message}>

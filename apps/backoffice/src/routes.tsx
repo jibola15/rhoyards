@@ -5,8 +5,10 @@ import { AppLayout } from './app/layout/AppLayout';
 import { RequireAuth, RequirePermission } from './auth/guards';
 import { Home } from './features/dashboard/Home';
 import { SystemStatusPage } from './features/system/SystemStatusPage';
+import { AccountSecurityPage } from './pages/AccountSecurityPage';
 import { ChangePasswordPage } from './pages/ChangePasswordPage';
 import { LoginPage } from './pages/LoginPage';
+import { ForgotPasswordPage, ResetPasswordPage } from './pages/PasswordResetPages';
 import { NotFoundPage } from './pages/NotFoundPage';
 
 /** Route-level code splitting: each feature screen is downloaded when first opened. */
@@ -93,6 +95,8 @@ const guarded = (path: string, permission: Permission | Permission[], element: R
 
 export const routes: RouteObject[] = [
   { path: '/login', element: <LoginPage /> },
+  { path: '/forgot-password', element: <ForgotPasswordPage /> },
+  { path: '/reset-password', element: <ResetPasswordPage /> },
   {
     element: <RequireAuth />,
     children: [
@@ -179,6 +183,7 @@ export const routes: RouteObject[] = [
           guarded('roles', 'users.view', <RolesPage />),
           guarded('settings', 'settings.view', <SettingsPage />),
           { path: 'account/password', element: <ChangePasswordPage /> },
+          { path: 'account/security', element: <AccountSecurityPage /> },
           { path: '*', element: <NotFoundPage /> },
         ],
       },

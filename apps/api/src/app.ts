@@ -9,6 +9,7 @@ import swaggerUi from 'swagger-ui-express';
 import type { Env } from './config/env';
 import { setBusinessTimeZone } from './lib/business-date';
 import { createLogger } from './lib/logger';
+import { createMailer, type Mailer } from './lib/mailer';
 import { LocalDiskStorage, type FileStorage } from './lib/storage';
 import { accountingRouter } from './modules/accounting/accounting.routes';
 import { ordersRouter } from './modules/orders/orders.routes';
@@ -30,7 +31,7 @@ import { createRateLimiter } from './middleware/rate-limit';
 import { auditRouter } from './modules/audit/audit.routes';
 import { csrfProtection, loadSession, originCheck } from './modules/auth/auth.middleware';
 import { authRouter } from './modules/auth/auth.routes';
-import type { SessionConfig } from './modules/auth/auth.types';
+import type { AuthConfig, SessionConfig } from './modules/auth/auth.types';
 import { healthRouter } from './modules/health/health.routes';
 import { rolesRouter } from './modules/roles/roles.routes';
 import { settingsRouter } from './modules/settings/settings.routes';
@@ -47,13 +48,25 @@ export function sessionConfig(env: Env): SessionConfig {
   };
 }
 
+export function authConfig(env: Env): AuthConfig {
+  return {
+    session: sessionConfig(env),
+    twoFactorKey: env.TWO_FACTOR_KEY,
+    issuer: 'Rhoyards',
+    backofficeUrl: env.BACKOFFICE_URL,
+    storefrontUrl: env.STOREFRONT_URL,
+  };
+}
+
 export function createApp(
   env: Env,
   logger: Logger = createLogger(env),
   storage: FileStorage = new LocalDiskStorage(env.UPLOAD_DIR),
+  mailer: Mailer = createMailer(env, logger),
 ) {
   const app = express();
-  const sessions = sessionConfig(env);
+  const auth = authConfig(env);
+  const sessions = auth.session;
   setBusinessTimeZone(env.BUSINESS_TIMEZONE);
   app.disable('x-powered-by');
   app.set('trust proxy', env.TRUST_PROXY);
@@ -89,7 +102,7 @@ export function createApp(
     }),
   );
   app.use(cookieParser());
-  app.use('/api', createRateLimiter({ windowMs: 60_000, limit: 300 }));
+  app.use('/api', createRateLimiter({ name: 'api', windowMs: 60_000, limit: 300, shared: env.RATE_LIMIT_STORE === 'database' }));
 
   if (env.API_DOCS_ENABLED) {
     const document = buildOpenApiDocument();
@@ -104,11 +117,11 @@ export function createApp(
   // Payment providers call these server-to-server; they authenticate by signature, not session.
   app.use('/api/v1', webhooksRouter(env));
   // The public storefront has its own customer sessions and CSRF, so it is mounted before the staff middleware.
-  app.use('/api/v1/store', originCheck(env.CORS_ORIGINS), storeRouter(env, sessions.secureCookie));
+  app.use('/api/v1/store', originCheck(env.CORS_ORIGINS), storeRouter(env, auth, mailer));
 
   // Staff API: origin check → session → CSRF, then module routers enforce permissions per route.
   app.use('/api/v1', originCheck(env.CORS_ORIGINS), loadSession(sessions), csrfProtection);
-  app.use('/api/v1', authRouter(sessions, env.LOGIN_RATE_LIMIT));
+  app.use('/api/v1', authRouter(auth, env, mailer));
   app.use('/api/v1', usersRouter);
   app.use('/api/v1', rolesRouter);
   app.use('/api/v1', settingsRouter);

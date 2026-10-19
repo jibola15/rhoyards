@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { timeStep, totpCode } from '../apps/api/src/modules/auth/totp';
 import { E2E } from './fixtures';
 
 /**
@@ -10,11 +11,26 @@ test.describe.configure({ mode: 'serial' });
 
 let orderNumber = '';
 
+let staffLogins = 0;
+
+/**
+ * Two-step staff sign-in. The first time with the username and an authenticator code; after that with backup codes
+ * (an authenticator code is accepted once, and the next sign-in may come within the same 30 seconds).
+ */
 async function staffLogin(page: Page) {
   await page.goto(`${E2E.urls.backoffice}/login`);
-  await page.getByLabel('Email').fill(E2E.owner.email);
+  const first = staffLogins === 0;
+  await page.getByLabel('Email or username').fill(first ? E2E.owner.username : E2E.owner.email);
   await page.getByLabel('Password').fill(E2E.owner.password);
   await page.getByRole('button', { name: 'Sign in' }).click();
+  if (first) {
+    await page.getByLabel('Authentication code').fill(totpCode(E2E.owner.totpSecret, timeStep()));
+  } else {
+    await page.getByRole('button', { name: /Use a backup code/ }).click();
+    await page.getByLabel('Backup code').fill(E2E.owner.backupCodes[staffLogins - 1]!);
+  }
+  staffLogins += 1;
+  await page.getByRole('button', { name: 'Verify' }).click();
   await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
 }
 

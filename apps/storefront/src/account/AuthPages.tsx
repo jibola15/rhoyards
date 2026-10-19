@@ -105,6 +105,11 @@ export function LoginPage() {
           <Link to={`/account/register?next=${encodeURIComponent(next)}`} className="underline">
             Create an account
           </Link>
+          <span className="mt-2 block">
+            <Link to="/account/forgot-password" className="underline">
+              Forgot your password?
+            </Link>
+          </span>
         </>
       }
     />

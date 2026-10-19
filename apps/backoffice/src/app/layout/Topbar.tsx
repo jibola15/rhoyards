@@ -1,5 +1,5 @@
 import { Link, useNavigate } from 'react-router';
-import { KeyRound, LogOut, Menu, Moon, Sun } from 'lucide-react';
+import { LogOut, Menu, Moon, ShieldCheck, Sun } from 'lucide-react';
 import { Button, buttonVariants, toast } from '@rhoyards/ui';
 import { useAuth } from '../../auth/AuthProvider';
 
@@ -44,8 +44,8 @@ export function Topbar({ onOpenMobileNav, theme, onToggleTheme }: TopbarProps) {
         </Button>
         {user && (
           <>
-            <Link to="/account/password" className={buttonVariants({ variant: 'ghost', size: 'icon' })} aria-label="Change password" title="Change password">
-              <KeyRound />
+            <Link to="/account/security" className={buttonVariants({ variant: 'ghost', size: 'icon' })} aria-label="Account security" title="Account security: password and two-step sign-in">
+              <ShieldCheck />
             </Link>
             <Button
               variant="ghost"

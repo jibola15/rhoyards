@@ -32,6 +32,10 @@ export const settingsSchema = z.object({
     header: optionalText(500),
     footer: optionalText(500),
   }),
+  pos: z.object({
+    /** Largest line discount a cashier may give without a supervisor's approval. */
+    maxDiscountPercent: z.number().min(0).max(100),
+  }),
 });
 
 export type Settings = z.infer<typeof settingsSchema>;
@@ -112,4 +116,5 @@ export const DEFAULT_SETTINGS: Settings = {
   fiscal: { yearStartMonth: 1 },
   inventory: { allowNegativeStock: false, blockExpiredSale: true, expiryWarningDays: 90 },
   receipt: { header: '', footer: 'Thank you for shopping with us.' },
+  pos: { maxDiscountPercent: 10 },
 };

@@ -2,6 +2,10 @@ import {
   Activity,
   ArrowLeftRight,
   Banknote,
+  ClipboardCheck,
+  Contact,
+  Receipt,
+  Store,
   Boxes,
   FileText,
   Hourglass,
@@ -26,7 +30,7 @@ export interface NavItem {
   to: string;
   icon: LucideIcon;
   /** Hidden from users without this permission (the API enforces it regardless). */
-  permission?: Permission;
+  permission?: Permission | Permission[];
 }
 
 export interface NavGroup {
@@ -36,6 +40,15 @@ export interface NavGroup {
 
 /** Only implemented routes appear here; each phase adds its module's entries. */
 export const navGroups: NavGroup[] = [
+  {
+    label: 'Sales',
+    items: [
+      { label: 'Point of sale', to: '/pos', icon: Store, permission: 'pos.sell' },
+      { label: 'Sales', to: '/sales', icon: Receipt, permission: ['sales.view', 'pos.sell'] },
+      { label: 'Shifts', to: '/pos/shifts', icon: ClipboardCheck, permission: ['pos.shift.reconcile', 'sales.view'] },
+      { label: 'Customers', to: '/customers', icon: Contact, permission: 'customers.view' },
+    ],
+  },
   {
     label: 'Catalogue',
     items: [
@@ -81,6 +94,6 @@ export const navGroups: NavGroup[] = [
 
 export function visibleNav(can: (p: Permission) => boolean): NavGroup[] {
   return navGroups
-    .map((g) => ({ ...g, items: g.items.filter((i) => !i.permission || can(i.permission)) }))
+    .map((g) => ({ ...g, items: g.items.filter((i) => !i.permission || (Array.isArray(i.permission) ? i.permission.some(can) : can(i.permission))) }))
     .filter((g) => g.items.length > 0);
 }

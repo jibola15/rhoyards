@@ -7,11 +7,14 @@ import type { Logger } from 'pino';
 import { pinoHttp } from 'pino-http';
 import swaggerUi from 'swagger-ui-express';
 import type { Env } from './config/env';
+import { setBusinessTimeZone } from './lib/business-date';
 import { createLogger } from './lib/logger';
 import { LocalDiskStorage, type FileStorage } from './lib/storage';
 import { catalogRouter } from './modules/catalog/catalog.routes';
 import { filesRouter } from './modules/files/files.routes';
 import { inventoryRouter } from './modules/inventory/inventory.routes';
+import { customersRouter } from './modules/customers/customers.routes';
+import { posRouter } from './modules/pos/pos.routes';
 import { purchasingRouter } from './modules/purchasing/purchasing.routes';
 import { suppliersRouter } from './modules/suppliers/suppliers.routes';
 import { errorHandler, notFoundHandler } from './middleware/error-handler';
@@ -43,6 +46,7 @@ export function createApp(
 ) {
   const app = express();
   const sessions = sessionConfig(env);
+  setBusinessTimeZone(env.BUSINESS_TIMEZONE);
   app.disable('x-powered-by');
   app.set('trust proxy', env.TRUST_PROXY);
 
@@ -88,6 +92,8 @@ export function createApp(
   app.use('/api/v1', suppliersRouter);
   app.use('/api/v1', inventoryRouter);
   app.use('/api/v1', purchasingRouter);
+  app.use('/api/v1', customersRouter);
+  app.use('/api/v1', posRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler(logger));

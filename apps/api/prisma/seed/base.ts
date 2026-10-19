@@ -143,6 +143,19 @@ export async function seedBase(prisma: PrismaClient, now = new Date()) {
     skipDuplicates: true,
   });
 
+  // Payment methods, each debiting its ledger account when a sale is paid.
+  const accountId = async (key: string) => (await prisma.account.findUniqueOrThrow({ where: { systemKey: key } })).id;
+  await prisma.paymentMethod.createMany({
+    data: [
+      { code: 'CASH', name: 'Cash', kind: 'CASH', accountId: await accountId('CASH_ON_HAND'), sortOrder: 1 },
+      { code: 'CARD', name: 'Card (POS terminal)', kind: 'CARD', accountId: await accountId('CARD_CLEARING'), sortOrder: 2 },
+      { code: 'TRANSFER', name: 'Bank transfer', kind: 'BANK_TRANSFER', accountId: await accountId('BANK_MAIN'), requiresReference: true, sortOrder: 3 },
+    ],
+    skipDuplicates: true,
+  });
+  const main = await prisma.location.findUniqueOrThrow({ where: { code: 'MAIN' } });
+  await prisma.register.createMany({ data: [{ locationId: main.id, name: 'Till 1' }], skipDuplicates: true });
+
   const startMonth = DEFAULT_SETTINGS.fiscal.yearStartMonth;
   const fyStartYear = now.getUTCMonth() + 1 >= startMonth ? now.getUTCFullYear() : now.getUTCFullYear() - 1;
   await ensureFiscalYear(prisma, fyStartYear, startMonth);

@@ -27,6 +27,8 @@ const envSchema = z.object({
   /** Directory for uploaded files (local-disk storage driver). */
   UPLOAD_DIR: z.string().min(1).default('./storage/uploads'),
   MAX_UPLOAD_MB: z.coerce.number().min(1).max(25).default(5),
+  /** IANA time zone that defines the business day for accounting dates (e.g. a sale at 00:30). */
+  BUSINESS_TIMEZONE: z.string().min(1).default('Africa/Lagos'),
 });
 
 export type Env = Omit<z.infer<typeof envSchema>, 'API_DOCS_ENABLED'> & { API_DOCS_ENABLED: boolean };

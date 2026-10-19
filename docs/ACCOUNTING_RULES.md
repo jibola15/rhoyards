@@ -3,7 +3,7 @@
 The rules every module follows when it posts to the general ledger. Implemented by the posting engine
 ([`apps/api/src/engines/posting/posting.service.ts`](../apps/api/src/engines/posting/posting.service.ts)); enforced again by database triggers (see [DATABASE.md](DATABASE.md)).
 
-Status: the **engine, ledger guards, chart of accounts and periods are built (Phase 2)**; **inventory costing, stock adjustments and transfers are built (Phase 3)**; **purchasing — receipts, supplier invoices, payments and returns — is built (Phase 4)**. Posting rules marked *(Phase n)* for later phases are applied when that module is built.
+Status: the **engine, ledger guards, chart of accounts and periods are built (Phase 2)**; **inventory costing, stock adjustments and transfers are built (Phase 3)**; **purchasing — receipts, supplier invoices, payments and returns — is built (Phase 4)**; **POS sales and shift close are built (Phase 5)**. Posting rules marked *(Phase n)* for later phases are applied when that module is built.
 
 ## 1. Fundamentals
 
@@ -62,8 +62,8 @@ Dispatch removes stock (FEFO; expired lots are not sent) from the source; receip
 | Supplier invoice *(built — §5a)* | GRNI (matched value); expense lines; VAT input; PPV (5030) if invoice > GRN | AP (2000); PPV if invoice < GRN |
 | Supplier payment *(built)* | AP | Bank / Cash |
 | Purchase return *(built — §5a)* | GRNI (uninvoiced part); AP (invoiced part incl. VAT) | Inventory at WAC; VAT input; difference to PPV |
-| POS sale *(Phase 5)* | Cash (1000) / Card clearing (1020) / Bank (1010) per payment method; AR (1100) for an authorised credit balance | Sales revenue (4000) net of discounts; VAT output |
-| …and its cost *(Phase 5)* | COGS (5000) at WAC | Inventory |
+| POS sale *(built — §5b)* | Cash (1000) / Card clearing (1020) / Bank (1010) per payment method; AR (1100) for an authorised credit balance | Sales revenue (4000) net of discounts; VAT output |
+| …and its cost *(built)* | COGS (5000) at WAC | Inventory |
 | Credit-sale receipt *(Phase 8)* | Cash / Bank | AR |
 | **Online order — payment confirmed** *(Phase 7)* (revenue recognised at confirmation) | Gateway clearing (1030) / Bank | Sales revenue; Shipping income (4100); VAT output |
 | …and its cost *(Phase 7)* | COGS at WAC | Inventory |
@@ -73,7 +73,7 @@ Dispatch removes stock (FEFO; expired lots are not sent) from the source; receip
 | Stock adjustment *(built — see §4)* | Inventory, or Adjustments (5010) / Write-off (5020) | Opening balance equity / Adjustments, or Inventory |
 | Stock transfer *(built)* | — no GL entry (same legal entity) — | |
 | Expense *(Phase 8)* | Expense account; VAT input if recoverable | Cash / Bank (paid) or AP (on account) |
-| Cash over / short at shift close *(Phase 8)* | Cash (over) / Cash over-short (4900) (short) | Cash over-short (over) / Cash (short) |
+| Cash over / short at shift close *(built — §5b)* | Cash (over) / Cash over-short (4900) (short) | Cash over-short (over) / Cash (short) |
 | Card settlement *(Phase 8)* | Bank; Bank charges (6050) | Card clearing |
 | Opening balances *(Phase 6)* | each debit-balance account | Opening balance equity (3900) — and the reverse for credit balances |
 | Year-end close *(Phase 6)* | income accounts | expense accounts; difference to Retained earnings (3100) |
@@ -97,6 +97,26 @@ Purchase prices are **exclusive of VAT**. Stock is valued at the net cost; VAT o
 **What we owe a supplier** = posted invoices − payments − return credits (debit notes). Unapplied payments and return credits are shown as credits on the aged-payables report.
 
 **Controls (tested):** AP ledger balance = Σ supplier balances; GRNI ledger balance = Σ (receipt line value − GRNI cleared) over posted receipts; Inventory ledger balance = stock ledger value.
+
+## 5b. POS sales in detail *(built in Phase 5)*
+
+**Pricing** (`priceSale` in `packages/shared`, used by both the till and the API). Per line: gross = round₂(qty × unit price); discount = round₂(gross × pct ÷ 100) or a fixed amount ≤ gross; after = gross − discount. Prices include VAT: tax = round₂(after × r ÷ (100 + r)), net = after − tax. Prices exclude VAT: net = after, tax = round₂(net × r ÷ 100). Tax is charged only while the business is VAT-registered. The sale stores gross, discount, net (subtotal), tax and total; a database CHECK keeps them consistent.
+
+**Completing a sale** is one database transaction, idempotent per `Idempotency-Key`: validate and price → check price-override and discount authority → record payments → issue stock (FEFO, moving average; expired lots blocked when `blockExpiredSale` is on) → post **one** journal (`posting_key = SALE:<id>`):
+
+| Debit | Credit |
+|---|---|
+| each payment method's ledger account (Cash 1000, Card clearing 1020, Bank 1010 …), summed per account | Sales revenue (4000) = Σ net |
+| AR (1100) for any unpaid balance — only for a customer with credit enabled, within available credit, by a user with `pos.credit_sale` | VAT output (2100) = Σ tax |
+| COGS (5000) at the issue cost | Inventory (1200) |
+
+Payments may not add up to more than the total; change is given only on cash (tendered = amount + change). Any failure rolls back everything (sale, stock movements, journal). Completed sales, their lines and payments are immutable (database guards); returns (Phase 8) only advance `qty_returned`.
+
+**Shift close.** Expected cash = opening float + cash taken (net of change). The difference from the counted cash posts `posting_key = CASHIER_SHIFT:<id>:VARIANCE`: over → Dr Cash / Cr Cash over-short (4900); short → the reverse. Closed shifts are final.
+
+**Journal date** is the business day in `BUSINESS_TIMEZONE`.
+
+**Controls (tested):** Inventory ledger = stock ledger value; AR ledger = Σ customer balances.
 
 ## 6. Profit measures
 

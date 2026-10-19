@@ -22,6 +22,7 @@ import { useAuth } from '../../auth/AuthProvider';
 import { PageHeader, QueryError } from '../../components/page';
 import { api } from '../../lib/api';
 import { LocationsCard } from './LocationsCard';
+import { PaymentMethodsCard, RegistersCard } from './PosSetupCards';
 import { TaxRatesCard } from './TaxRatesCard';
 
 const SETTINGS_KEY = ['settings'] as const;
@@ -248,6 +249,28 @@ export function SettingsPage() {
             </>
           )}
         </SectionForm>
+
+        <SectionForm
+          section="pos"
+          title="Point of sale"
+          description="Limits applied at the till."
+          value={s.pos}
+          disabled={readOnly}
+        >
+          {({ register, formState: { errors } }) => (
+            <Field
+              id="pos-max-discount"
+              label="Largest discount without approval (%)"
+              description="Cashiers need a supervisor's approval for bigger line discounts."
+              error={errors.maxDiscountPercent?.message as string | undefined}
+            >
+              <Input type="number" min={0} max={100} step="0.01" className="w-32" {...register('maxDiscountPercent', { valueAsNumber: true })} />
+            </Field>
+          )}
+        </SectionForm>
+
+        <PaymentMethodsCard />
+        <RegistersCard />
 
         <SectionForm
           section="receipt"

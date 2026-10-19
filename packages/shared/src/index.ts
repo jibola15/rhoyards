@@ -8,3 +8,5 @@ export * from './inputs';
 export * from './catalog';
 export * from './inventory';
 export * from './purchasing';
+export * from './pricing';
+export * from './pos';

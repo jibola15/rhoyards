@@ -41,7 +41,9 @@ export function RequireAuth() {
   return <Outlet />;
 }
 
-export function RequirePermission({ permission, children }: { permission: Permission; children: ReactNode }) {
+/** Renders the children if the user holds the permission (or any one of a list of permissions). */
+export function RequirePermission({ permission, children }: { permission: Permission | Permission[]; children: ReactNode }) {
   const { can } = useAuth();
-  return can(permission) ? <>{children}</> : <ForbiddenPage />;
+  const allowed = Array.isArray(permission) ? permission.some(can) : can(permission);
+  return allowed ? <>{children}</> : <ForbiddenPage />;
 }

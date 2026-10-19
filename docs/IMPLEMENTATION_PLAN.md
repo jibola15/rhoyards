@@ -21,6 +21,12 @@ Date: 2026-10-18
 | 2026-10-20 | Purchase price variance is expensed (5030) rather than re-costing stock | Simple and auditable for v1; stock stays at receipt cost |
 | 2026-10-20 | New permission `supplier_invoices.manage` (Owner, Manager, Accountant); seed grants newly added permissions to system roles without touching edited ones | Invoice entry is accounting work, separate from receiving goods |
 | 2026-10-20 | Supplier payments are final (no void); corrections via journal reversal (Phase 6) | Immutable money records |
+| 2026-10-21 | POS line pricing lives in one shared function (`priceSale`, `packages/shared`) used by both the till and the API | Live totals on screen always equal what is stored and posted |
+| 2026-10-21 | New permission `sales.view` (Owner, Manager, Accountant); cashiers without it see only their own sales | Sales history and receipts separated from ringing up |
+| 2026-10-21 | Discount limit is a setting (`pos.maxDiscountPercent`, default 10 %); above it a supervisor with `pos.discount.override` approves at the till with their own email and password | No shared override codes; the approver is recorded on the sale |
+| 2026-10-21 | Shift close posts cash over/short (4900) immediately (moved forward from Phase 8) | Cash in the ledger matches the counted drawer at every close |
+| 2026-10-21 | Business day defined by `BUSINESS_TIMEZONE` (default Africa/Lagos) | A sale at 00:30 local time is dated that day, not the previous UTC day |
+| 2026-10-21 | Suspended sales hold no stock and post nothing; resuming returns the cart and deletes the parked record | Parked carts cannot block or distort stock |
 
 ---
 

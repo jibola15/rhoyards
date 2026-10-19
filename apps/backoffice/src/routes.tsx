@@ -1,4 +1,4 @@
-import { lazy, type ComponentType, type ReactNode } from 'react';
+import { lazy, Suspense, type ComponentType, type ReactNode } from 'react';
 import type { RouteObject } from 'react-router';
 import type { Permission } from '@rhoyards/shared';
 import { AppLayout } from './app/layout/AppLayout';
@@ -40,8 +40,17 @@ const SupplierPaymentPage = page(() => import('./features/purchasing/SupplierPay
 const PurchaseReturnPage = page(() => import('./features/purchasing/PurchaseReturnPage'), 'PurchaseReturnPage');
 const SupplierDetailPage = page(() => import('./features/purchasing/SupplierDetailPage'), 'SupplierDetailPage');
 const PayablesAgingPage = page(() => import('./features/purchasing/PayablesAgingPage'), 'PayablesAgingPage');
+const PosPage = page(() => import('./features/pos/PosPage'), 'PosPage');
+const shiftPages = () => import('./features/pos/ShiftPage');
+const ShiftsPage = page(shiftPages, 'ShiftsPage');
+const ShiftPage = page(shiftPages, 'ShiftPage');
+const salePages = () => import('./features/pos/SalesPages');
+const SalesPage = page(salePages, 'SalesPage');
+const SalePage = page(salePages, 'SalePage');
+const ReceiptPage = page(() => import('./features/pos/Receipt'), 'ReceiptPage');
+const CustomersPage = page(() => import('./features/customers/CustomersPage'), 'CustomersPage');
 
-const guarded = (path: string, permission: Permission, element: ReactNode): RouteObject => ({
+const guarded = (path: string, permission: Permission | Permission[], element: ReactNode): RouteObject => ({
   path,
   element: <RequirePermission permission={permission}>{element}</RequirePermission>,
 });
@@ -51,6 +60,15 @@ export const routes: RouteObject[] = [
   {
     element: <RequireAuth />,
     children: [
+      // Printable pages render without the app chrome; the API decides who may see the sale.
+      {
+        path: 'sales/:id/receipt',
+        element: (
+          <Suspense fallback={null}>
+            <ReceiptPage />
+          </Suspense>
+        ),
+      },
       {
         element: <AppLayout />,
         children: [
@@ -77,6 +95,12 @@ export const routes: RouteObject[] = [
           guarded('purchasing/returns/new', 'purchasing.manage', <PurchaseReturnPage />),
           guarded('purchasing/returns/:id', 'purchasing.view', <PurchaseReturnPage />),
           guarded('purchasing/payables', 'purchasing.view', <PayablesAgingPage />),
+          guarded('pos', 'pos.sell', <PosPage />),
+          guarded('pos/shifts', ['pos.shift.reconcile', 'sales.view'], <ShiftsPage />),
+          guarded('pos/shifts/:id', ['pos.shift.manage', 'pos.shift.reconcile', 'sales.view'], <ShiftPage />),
+          guarded('sales', ['sales.view', 'pos.sell'], <SalesPage />),
+          guarded('sales/:id', ['sales.view', 'pos.sell'], <SalePage />),
+          guarded('customers', 'customers.view', <CustomersPage />),
           guarded('inventory/stock', 'inventory.view', <StockPage />),
           guarded('inventory/movements', 'inventory.view', <MovementsPage />),
           guarded('inventory/expiry', 'inventory.view', <ExpiryPage />),

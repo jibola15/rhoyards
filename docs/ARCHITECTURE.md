@@ -54,7 +54,17 @@ Every call writes `stock_movements` rows (the append-only stock ledger). Documen
 
 ### Idempotent requests
 
-`src/lib/idempotency.ts` — `withIdempotency(scope, key, request, run)`. The (scope, key) row is claimed in `idempotency_keys` before the work runs (unique constraint), so concurrent duplicates cannot both execute; a completed request's response is stored and replayed (header `Idempotent-Replayed: true`); reusing a key with a different body is a 409. Required on `POST /supplier-payments` and, in later phases, on sales and refunds. The back office generates one key per form instance.
+`src/lib/idempotency.ts` — `withIdempotency(scope, key, request, run)`. The (scope, key) row is claimed in `idempotency_keys` before the work runs (unique constraint), so concurrent duplicates cannot both execute; a completed request's response is stored and replayed (header `Idempotent-Replayed: true`); reusing a key with a different body is a 409. Required on `POST /supplier-payments` and, on `POST /pos/sales`, and in later phases on refunds. The back office generates one key per form instance.
+
+## Point of sale
+
+`src/modules/pos/` (registers, payment methods, shifts, sales) and `src/modules/customers/`. Posting rules are in [ACCOUNTING_RULES.md §5b](ACCOUNTING_RULES.md).
+
+- `POST /pos/sales` requires an `Idempotency-Key` (scoped per cashier). In one transaction it takes the cashier's open shift `FOR SHARE` (a concurrent close waits), prices the cart with the shared `priceSale`, checks price-override and discount authority (a supervisor's approval re-checks their password like a login), issues stock through `openStockSession()` and posts one journal. Two tills selling the last unit serialise on the variant row lock; the second gets a stock error.
+- `POST /pos/sales/suspend` and `POST /pos/sales/:id/resume` park and return carts without touching stock or the ledger.
+- `POST /pos/shifts/:id/close` locks the shift `FOR UPDATE`, computes expected cash and posts any over/short.
+- `GET /sales/:id/receipt` returns receipt data (business details, lines, VAT breakdown, payments). Users without `sales.view` see only their own sales.
+- `src/lib/business-date.ts`: journal dates use the business day in `BUSINESS_TIMEZONE`.
 
 ## Files
 
@@ -88,6 +98,7 @@ Module layout: `src/modules/<name>/<name>.routes.ts` (+ controller, service, sch
 - Phase 2 screens: Staff users (search, status filter, pagination, create/edit/disable, reset password), Roles & permissions (permission matrix by module, custom roles), Settings (business details, VAT-inclusive/exclusive pricing, tax rates, inventory rules, receipt text, fiscal year, locations).
 - Phase 3 screens: Products (search/filters), product editor (details, variants with cosmetics attributes and barcodes, images, archive), Catalogue setup (brands, categories, units), Suppliers, Stock levels (with stock-ledger ↔ GL reconciliation), Stock adjustments (draft → post), Transfers (draft → dispatch → receive), Expiry, Stock movements.
 - Phase 4 screens: Purchase orders (approve, receive, close), Goods received (from an order or direct; lots/expiry), Supplier invoices (match received goods, extra charges, live totals), Supplier payments (allocate oldest-first), Returns to suppliers, supplier account page with statement, Aged payables. Document lists share `DocumentList`.
+- Phase 5 screens: Point of sale (register and shift, scan or search, cart with line discounts and price override, customer, suspend/resume, payment dialog with split tender and change, supervisor-approval prompt, printable receipt via print CSS), Sales list and detail with reprint, Shifts (open; close with cash count and variance), Customers (credit limit, balance), Settings → POS (discount limit, registers, payment methods).
 - `VariantPicker` is an accessible combobox: type to search, or scan — Enter on an exact barcode/SKU selects it.
 - Routes are code-split (`React.lazy`); libraries are in long-lived vendor chunks.
 - API calls go through `createApiClient` (`packages/shared`): same-origin `/api/v1`, `credentials: 'include'`, `X-CSRF-Token` on state-changing requests, typed `ApiError` from the error envelope.

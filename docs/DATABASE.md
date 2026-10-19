@@ -57,6 +57,7 @@ Schema source: [`apps/api/prisma/schema.prisma`](../apps/api/prisma/schema.prism
 | 3 | Suppliers | `suppliers` |
 | 3 | Inventory | `inventory_balances` (variant × location), `inventory_batches` (lots), `stock_movements` (ledger), `stock_adjustments` + `_lines`, `stock_transfers` + `_lines` |
 | 4 | Purchasing | `purchase_orders` + `_lines`, `goods_receipts` + `goods_receipt_lines` (with matching counters), `supplier_invoices` + `_lines`, `supplier_payments` + `supplier_payment_allocations`, `purchase_returns` + `_lines` |
+| 5 | Customers & POS | `customers` (credit limit), `payment_methods` (each → a ledger account), `registers`, `cashier_shifts`, `sales` (POS now; online in Phase 7), `sale_items` (price, discount, tax and cost per line), `sale_payments` |
 
 ### Inventory model
 
@@ -98,6 +99,13 @@ Defined in `prisma/migrations/20261018120100_phase2_integrity_guards/migration.s
 | `supplier_invoice_lines_target_chk` | a line matches received goods **or** charges an account |
 | `supplier_payments_append_only_trg` (+ allocations) | payments cannot be changed or deleted |
 | `supplier_invoices_amounts_chk` | 0 ≤ paid ≤ total |
+| `cashier_shifts_one_open_per_register` / `_one_open_per_cashier` (partial unique) | one open shift per register and per cashier |
+| `cashier_shifts_amounts_chk` / `_closed_chk` / `_guard_trg` | float and count ≥ 0; a closed shift has its counts and variance = counted − expected; closed shifts cannot change |
+| `customers_credit_chk` | credit limit ≥ 0 |
+| `sales_amounts_chk` / `sales_completed_chk` | amounts ≥ 0; a completed sale is numbered and its money adds up (total = subtotal + tax; paid + balance due = total) |
+| `sales_guard_trg` | completed sales cannot be changed or deleted |
+| `sale_items_qty_chk` / `_amounts_chk` / `_guard_trg` | qty > 0, 0 ≤ returned ≤ qty; line total = net + tax; lines of a completed sale are frozen except `qty_returned` |
+| `sale_payments_amount_chk` / `_guard_trg` | amount > 0; tendered = amount + change; payments of a completed sale cannot change |
 
 ## Sessions
 
@@ -105,4 +113,4 @@ Defined in `prisma/migrations/20261018120100_phase2_integrity_guards/migration.s
 
 ## Seed data
 
-`prisma/seed/base.ts` creates (only if missing): the permission catalogue, six system roles with default permissions, the chart of accounts, VAT (7.5 %, editable) / zero-rated / exempt tax rates, default settings (NGN, prices include VAT), units of measure (PC, SET, PACK, ML, L, G, KG), the `MAIN` store location and the current fiscal year with 12 monthly periods. `prisma/seed.ts` additionally creates the first owner from `SEED_OWNER_EMAIL` / `SEED_OWNER_PASSWORD` with a forced password change. No real customer data is seeded.
+`prisma/seed/base.ts` creates (only if missing): the permission catalogue, six system roles with default permissions, the chart of accounts, VAT (7.5 %, editable) / zero-rated / exempt tax rates, default settings (NGN, prices include VAT), units of measure (PC, SET, PACK, ML, L, G, KG), the `MAIN` store location, payment methods (Cash, Card → card clearing, Bank transfer → main bank with a required reference), register `Till 1` and the current fiscal year with 12 monthly periods. `prisma/seed.ts` additionally creates the first owner from `SEED_OWNER_EMAIL` / `SEED_OWNER_PASSWORD` with a forced password change. No real customer data is seeded.

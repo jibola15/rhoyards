@@ -13,7 +13,6 @@ export default defineConfig({
           data: ['@tanstack/react-query'],
           forms: ['react-hook-form', '@hookform/resolvers', 'zod'],
           ui: ['@radix-ui/react-dialog', 'sonner', 'lucide-react'],
-          charts: ['recharts'],
         },
       },
     },
@@ -22,6 +21,6 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     // Same-origin API calls in development: cookies and CSRF behave as they will in production.
-    proxy: { '/api': { target: 'http://localhost:4000', changeOrigin: false } },
+    proxy: { '/api': { target: process.env.API_PROXY_TARGET ?? 'http://localhost:4000', changeOrigin: false } },
   },
 });

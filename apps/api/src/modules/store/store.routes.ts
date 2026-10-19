@@ -57,6 +57,8 @@ const docs: [string, 'get' | 'post' | 'delete', string][] = [
   ['/store/checkout', 'post', 'Place an order: reserves stock and starts payment (Idempotency-Key required)'],
   ['/store/orders', 'get', "The customer's orders"],
   ['/store/orders/{number}', 'get', 'One of the customer\'s orders, with payment instructions and tracking'],
+  ['/store/test-gateway/{reference}', 'get', 'Test gateway page data: amount and order (development and tests only)'],
+  ['/store/test-gateway/{reference}', 'post', 'Test gateway: pay or decline; sends itself a signed webhook (development and tests only)'],
   ['/store/orders/{number}/pay', 'post', 'Start a new payment attempt after a declined one'],
   ['/store/orders/{number}/cancel', 'post', 'Cancel an order still awaiting payment'],
 ];

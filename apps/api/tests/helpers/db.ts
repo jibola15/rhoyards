@@ -24,7 +24,9 @@ export async function resetDatabase(): Promise<void> {
         `TRUNCATE ${tables.map((t) => `public."${t.tablename}"`).join(', ')} RESTART IDENTITY CASCADE`,
       );
     }
-  });
+    // A generous limit: if the client gave up early, the TRUNCATE would still finish on the server later and wipe
+    // the data the next test file had just seeded.
+  }, { maxWait: 30_000, timeout: 120_000 });
   await seedBase(prisma);
   forgetSystemUser();
 }

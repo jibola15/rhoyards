@@ -27,6 +27,14 @@ registry.registerPath({
   responses: { 201: { description: 'Created' }, 409: { description: 'Email already in use' } },
 });
 registry.registerPath({
+  method: 'get',
+  path: '/users/{id}',
+  tags: ['Users'],
+  summary: 'One staff user with roles and locations (users.view)',
+  request: { params: idParams },
+  responses: { 200: { description: 'User' }, 404: { description: 'Not found' } },
+});
+registry.registerPath({
   method: 'patch',
   path: '/users/{id}',
   tags: ['Users'],

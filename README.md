@@ -2,7 +2,7 @@
 
 Inventory, in-store POS, online store, purchasing, expenses and double-entry accounting for a cosmetics retailer with one physical store and an online shop.
 
-> **Status:** Phases 1–9 complete — project setup; database, authentication, roles & permissions, settings, audit log and ledger posting engine; catalogue, suppliers and inventory (moving-average costing, FEFO lots, expiry, adjustments, transfers, stock ledger); purchasing (orders, partial receipts, supplier invoices with three-way matching, payments, returns, statements, aged payables); point of sale (registers, shifts, barcode till, discounts with supervisor approval, VAT, split and credit payments, suspend/resume, printable receipts, customers, payment methods); accounting (chart of accounts, manual journals with reversals, period and year-end close, opening balances, general ledger, trial balance, profit and loss, balance sheet, cash flow, aged receivables); online store (catalogue with filters, product pages, cart, customer accounts, checkout with delivery options, stock reservations shared with the POS, bank-transfer and test-gateway payments with signed webhooks, order tracking, and order management in the back office); after-sales and money (returns and refunds with approval, cancelling paid online orders, customer payments against credit sales with statements, expenses with receipts, bank and cash reconciliation, card settlements); dashboard and reporting (management dashboard from the ledger, sales/payments/expenses/stock reports with CSV export, audit log viewer). See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) for the roadmap and decisions log.
+> **Status:** all ten phases complete — ready for a first production deployment (see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)). Back office: catalogue and stock, purchasing, point of sale, online orders, returns and refunds, customers and payments, expenses, accounting with period and year-end close, financial statements, reconciliation, dashboard and reports, audit log. Storefront: catalogue, cart, customer accounts, checkout with stock reservations shared with the till, bank-transfer and card-gateway payments, order tracking. See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) for the roadmap and decisions log.
 
 ## Repository layout
 
@@ -44,6 +44,7 @@ npm run dev
 | `npm test` | All Vitest projects (shared, api, backoffice, storefront). API integration tests run against the test database and take several minutes over the network |
 | `npx vitest run --project backoffice` | Run a single project |
 | `npm run check` | typecheck + lint + test |
+| `npm run e2e` | End-to-end browser tests (Playwright, Chromium): starts the API on the **test** database (reset and seeded) and both front ends on ports 4100/5273/5274. First time: `npx playwright install chromium` |
 
 ## Conventions
 
@@ -58,4 +59,6 @@ npm run dev
 - [Database](docs/DATABASE.md)
 - [Accounting rules](docs/ACCOUNTING_RULES.md)
 - [Online payments](docs/PAYMENTS.md)
+- [Deployment guide](docs/DEPLOYMENT.md)
+- [Security](docs/SECURITY.md)
 - API reference: run the API and open http://localhost:4000/api/docs

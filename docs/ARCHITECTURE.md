@@ -144,8 +144,10 @@ Module layout: `src/modules/<name>/<name>.routes.ts` (+ controller, service, sch
 | Project | Environment | Covers |
 |---|---|---|
 | shared | node | Decimal rounding/tax maths, API client |
-| api | node | Supertest against `createApp()`; integration tests against the real test database: auth, sessions, CSRF, lockout, RBAC, user/role/settings rules, posting engine and database guards |
-| backoffice | jsdom | Layout, permission-filtered navigation, login/guards/forced password change, users page, system status |
-| storefront | jsdom | Routing and layout |
+| api | node | Supertest against `createApp()`; integration tests against the real test database for every module (auth, RBAC, catalogue and stock, purchasing, POS, accounting, storefront and payments, returns and money, reporting) including the acceptance scenarios and database guards; an OpenAPI completeness test |
+| backoffice | jsdom | Layout and navigation, auth guards, and the main screens of each module with the API mocked |
+| storefront | jsdom | Home, product, cart and checkout with the API mocked |
+
+**End to end** (`npm run e2e`, Playwright): `e2e/start-api.ts` resets and seeds the test database and starts the real API; both Vite apps proxy to it. Covers a shopper paying online with the test card (webhook → paid order), staff moving the order on, and a cashier's sale appearing on the dashboard.
 
 API integration tests run in a single worker against a separate test database (`rhoyards_test`), reset per file; see [DATABASE.md](DATABASE.md) for why it must be a separate database.

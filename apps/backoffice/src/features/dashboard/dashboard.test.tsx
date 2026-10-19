@@ -3,6 +3,9 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import type { AuditLogRow, DashboardData } from '@rhoyards/shared';
 import { json, mockApi, renderApp, sessionFor } from '../../test/render';
+// Load the lazily imported dashboard (and its charting library) while the file is collected, not inside a test's
+// wait: under a full parallel run its first transform alone can take longer than the find-by timeout.
+import './DashboardPage';
 
 const dashboard: DashboardData = {
   asOf: '2026-10-19',

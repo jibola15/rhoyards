@@ -11,8 +11,14 @@ coverage/
 
 # Local file uploads
 apps/api/storage/
+# (test runs from the repo root resolve the relative UPLOAD_DIR here)
+/storage/
 
 # Editor / OS
 .DS_Store
 Thumbs.db
 .idea/
+
+# Playwright output
+test-results/
+playwright-report/

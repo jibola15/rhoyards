@@ -71,7 +71,13 @@ export function createApp(
       },
     }),
   );
-  app.use(helmet());
+  // The API only ever serves JSON and files: nothing it returns may load or run anything. The (development-only)
+  // Swagger UI is the one HTML page and keeps helmet's default policy.
+  const strictHeaders = helmet({
+    contentSecurityPolicy: { useDefaults: false, directives: { defaultSrc: ["'none'"], frameAncestors: ["'none'"], baseUri: ["'none'"], formAction: ["'none'"] } },
+  });
+  const docsHeaders = helmet();
+  app.use((req, res, next) => (req.path.startsWith('/api/docs') ? docsHeaders : strictHeaders)(req, res, next));
   app.use(cors({ origin: env.CORS_ORIGINS, credentials: true }));
   app.use(
     express.json({

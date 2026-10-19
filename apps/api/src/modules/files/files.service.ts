@@ -31,16 +31,14 @@ export async function uploadImage(storage: FileStorage, buffer: Buffer, original
     throw new AppError(400, 'VALIDATION_ERROR', 'Only JPEG, PNG or WebP images can be uploaded', { field: 'file' });
   }
 
-  let output: { data: Buffer; info: sharp.OutputInfo };
-  try {
-    output = await sharp(buffer, { limitInputPixels: 40_000_000 })
-      .rotate()
-      .resize({ width: MAX_DIMENSION, height: MAX_DIMENSION, fit: 'inside', withoutEnlargement: true })
-      .webp({ quality: 85 })
-      .toBuffer({ resolveWithObject: true });
-  } catch {
-    throw new AppError(400, 'VALIDATION_ERROR', 'The image could not be processed', { field: 'file' });
-  }
+  const output = await sharp(buffer, { limitInputPixels: 40_000_000 })
+    .rotate()
+    .resize({ width: MAX_DIMENSION, height: MAX_DIMENSION, fit: 'inside', withoutEnlargement: true })
+    .webp({ quality: 85 })
+    .toBuffer({ resolveWithObject: true })
+    .catch(() => {
+      throw new AppError(400, 'VALIDATION_ERROR', 'The image could not be processed', { field: 'file' });
+    });
 
   const id = randomUUID();
   const storageKey = `${id}.webp`;

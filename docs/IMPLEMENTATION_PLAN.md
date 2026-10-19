@@ -44,6 +44,16 @@ Date: 2026-10-18
 | 2026-10-23 | Delivery is a VAT-able line at the standard rate, charged in the store's pricing mode; its net goes to Shipping income (4100) and `sales.shipping_amount` | Revenue and delivery income stay separate in the P&L |
 | 2026-10-23 | A disabled, hidden **system user** authors postings with no person behind them (webhook-confirmed sales, reservation expiry) | Every journal and stock movement keeps a non-null author |
 | 2026-10-23 | Test card gateway (signed webhooks) for development and tests; it cannot be enabled in production. Real gateways plug into the same interface (docs/PAYMENTS.md) | End-to-end payment flow testable without a live gateway |
+| 2026-10-24 | Returns: request (`returns.create`) → approve (`returns.approve`) → refund (`refunds.process`, `Idempotency-Key`). Stock, refund and ledger happen only at the refund, in one transaction | Nothing is half-refunded; a pending return still reserves its quantity against the sale |
+| 2026-10-24 | Refund caps: quantity (pending + approved + completed returns ≤ sold, plus `qty_returned ≤ qty` in the database); the last return of a line takes exactly what is left of its amounts and cost | No line is ever refunded beyond what was paid, even after rounding |
+| 2026-10-24 | A return on a credit sale first reduces what the customer still owes on that sale; only the rest is paid out | AR is never left showing money the customer has had back |
+| 2026-10-24 | Restocked items return at the **original sale cost** into the lots they were sold from; the journal uses exactly the stock ledger's value | Inventory stays equal to the stock ledger to the kobo |
+| 2026-10-24 | Cash refunded by a cashier with an open shift reduces that shift's expected cash | Drawer counts stay right |
+| 2026-10-24 | Exchanges are a return plus a new sale at the till (two documents) | No separate exchange document in v1 |
+| 2026-10-24 | AR sub-ledger: `sales.amount_settled` (the only field of a completed sale that may change, guarded) + immutable customer receipts with allocations; unapplied money stays as a credit on the receipt | AR ledger = Σ customer balances; tested |
+| 2026-10-24 | Expenses are **paid** expenses only (Dr expense [+ VAT input] / Cr cash or bank), draft → submitted → posted, sent back to draft with a reason. Bills to pay later stay supplier invoices | AP stays equal to supplier balances |
+| 2026-10-24 | Expense receipts are private files (photos re-encoded, PDFs checked by content and served as downloads), readable only with an expenses permission | Receipts are not public and cannot run script on our origin |
+| 2026-10-24 | Bank reconciliation ticks posted lines of a cash/bank account against a statement; it completes only at a nil difference and its lines are cleared for good. Card settlement is a small posting (Dr Bank, Dr Bank charges / Cr clearing), reversible from the ledger | Bank balance provable at each statement date |
 
 ---
 
@@ -435,14 +445,15 @@ At the end of each phase I will: list the files changed, run migrations, typeche
 
 Integration tests run against a dedicated Neon `test` branch, which is reset per test file. A real PostgreSQL database is required: the locking, trigger and concurrency guarantees can't be tested on SQLite or with mocks.
 
-### Known issues and limitations (as of Phase 7)
+### Known issues and limitations (as of Phase 8)
 
-- **Customer and supplier opening balances** cannot be entered yet: their control accounts are closed to manual entries, and there is no "opening invoice" document. Planned with customer receipts (Phase 8); until then, start with zero balances or enter the open invoices as supplier invoices.
-- **Correcting a supplier payment** keyed against the wrong supplier or amount has no document yet (payments are final; their journals cannot be reversed from the ledger). Planned for Phase 8 alongside refunds.
-- **Aged receivables** ages each credit sale from its sale date (customers have no payment terms yet) and shows balances as they stand today; receipts against them arrive in Phase 8.
+- **Customer and supplier opening balances** cannot be entered yet: their control accounts are closed to manual entries, and there is no "opening invoice" document. Start with zero balances, or enter the open supplier invoices as supplier invoices.
+- **Unapplied customer credit** (payment received with nothing to apply it to) cannot later be applied to a new credit sale; it stays as a credit that reduces the customer's balance.
+- **Aged receivables** for a past date use today's settlement state (payments and returns after that date are already netted).
+- **Correcting a supplier payment** keyed against the wrong supplier or amount still has no document (payments are final; their journals cannot be reversed from the ledger). Workaround: a manual journal Dr Bank / Cr Purchase price variance or Other income, agreed with the supplier, until a reversal document is added.
+- **Aged receivables** ages each credit sale from its sale date (customers have no payment terms yet).
 - **Cash flow** lists every non-cash line of a cash entry, so a sale shows its cost of sales and the matching inventory reduction as two operating lines that cancel out.
 - **No guest checkout** and **no customer emails** (order confirmation, payment received, dispatched) yet; customers follow their orders on the website.
-- **Refunds** for orders on hold or paid after cancellation, and cancelling a paid order, come with returns and refunds in Phase 8. The `online_orders_payment_chk` guard will be extended then (a refunded order keeps its sale).
 - **No real card gateway** yet; bank transfer (staff-verified) and the test gateway only. See [PAYMENTS.md](PAYMENTS.md).
 - Storefront stock badges use on-hand minus reserved and ignore expired lots; checkout's reservation does exclude expired lots, so a customer can at worst be told at checkout that an item is short.
 - Prettier is configured but the codebase is not formatted with it (`npm run format:check` fails across earlier phases too); ESLint is the enforced style check.

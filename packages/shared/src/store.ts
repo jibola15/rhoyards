@@ -213,7 +213,7 @@ export interface CartQuote {
 
 // ── Orders ────────────────────────────────────────────────────────────────
 
-export const ORDER_STATUSES = ['PENDING_PAYMENT', 'PAID', 'PROCESSING', 'PACKED', 'SHIPPED', 'DELIVERED', 'CANCELLED', 'ON_HOLD'] as const;
+export const ORDER_STATUSES = ['PENDING_PAYMENT', 'PAID', 'PROCESSING', 'PACKED', 'SHIPPED', 'DELIVERED', 'CANCELLED', 'ON_HOLD', 'REFUNDED'] as const;
 export type OrderStatus = (typeof ORDER_STATUSES)[number];
 
 export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
@@ -225,6 +225,7 @@ export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   DELIVERED: 'Delivered',
   CANCELLED: 'Cancelled',
   ON_HOLD: 'On hold',
+  REFUNDED: 'Refunded',
 };
 
 /** Fulfilment moves staff may make. Payment, cancellation and on-hold changes have their own actions. */
@@ -245,6 +246,14 @@ export const verifyPaymentSchema = z.object({
   note: optionalText(300),
 });
 export const cancelOrderSchema = z.object({ reason: z.string().trim().min(3, 'Give a reason').max(300) });
+/** Cancel a paid order: everything comes back to stock and the customer is refunded. */
+export const refundOrderSchema = z.object({
+  reason: z.string().trim().min(3, 'Give a reason').max(300),
+  refundShipping: z.boolean().default(true),
+  paymentMethodId: z.uuid().optional(),
+  reference: optionalText(80),
+});
+export const refundDepositSchema = z.object({ paymentMethodId: z.uuid().optional(), reference: optionalText(80) });
 
 export const orderListQuerySchema = listQuerySchema.extend({
   status: z.enum(ORDER_STATUSES).optional(),
@@ -330,6 +339,8 @@ export interface OrderDetail extends StoreOrder {
   sale: { id: string; number: string } | null;
   payments: OrderPayment[];
   depositJournalId: string | null;
+  depositRefundJournalId: string | null;
+  returns: { id: string; number: string; status: string; total: string }[];
 }
 
 // ── Online-store settings ─────────────────────────────────────────────────

@@ -3,7 +3,7 @@
 The rules every module follows when it posts to the general ledger. Implemented by the posting engine
 ([`apps/api/src/engines/posting/posting.service.ts`](../apps/api/src/engines/posting/posting.service.ts)); enforced again by database triggers (see [DATABASE.md](DATABASE.md)).
 
-Status: the **engine, ledger guards, chart of accounts and periods are built (Phase 2)**; **inventory costing, stock adjustments and transfers are built (Phase 3)**; **purchasing — receipts, supplier invoices, payments and returns — is built (Phase 4)**; **POS sales and shift close are built (Phase 5)**; **manual journals, periods, year-end close, opening balances and the financial statements are built (Phase 6)**; **online orders, payment confirmation and customer deposits are built (Phase 7)**. Posting rules marked *(Phase n)* for later phases are applied when that module is built.
+Status: the **engine, ledger guards, chart of accounts and periods are built (Phase 2)**; **inventory costing, stock adjustments and transfers are built (Phase 3)**; **purchasing — receipts, supplier invoices, payments and returns — is built (Phase 4)**; **POS sales and shift close are built (Phase 5)**; **manual journals, periods, year-end close, opening balances and the financial statements are built (Phase 6)**; **online orders, payment confirmation and customer deposits are built (Phase 7)**; **returns and refunds, customer receipts, expenses, reconciliation and card settlement are built (Phase 8)**. Posting rules marked *(Phase n)* for later phases are applied when that module is built.
 
 ## 1. Fundamentals
 
@@ -64,19 +64,20 @@ Dispatch removes stock (FEFO; expired lots are not sent) from the source; receip
 | Purchase return *(built — §5a)* | GRNI (uninvoiced part); AP (invoiced part incl. VAT) | Inventory at WAC; VAT input; difference to PPV |
 | POS sale *(built — §5b)* | Cash (1000) / Card clearing (1020) / Bank (1010) per payment method; AR (1100) for an authorised credit balance | Sales revenue (4000) net of discounts; VAT output |
 | …and its cost *(built)* | COGS (5000) at WAC | Inventory |
-| Credit-sale receipt *(Phase 8)* | Cash / Bank | AR |
+| Credit-sale receipt *(built — §5e)* | Cash / Bank | AR |
 | **Online order — payment confirmed** *(built — §5d)* (revenue recognised at confirmation) | Gateway clearing (1030) / Bank (1010) per provider | Sales revenue; Shipping income (4100); VAT output |
 | Online payment that cannot be fulfilled yet (on hold, or order already cancelled) *(built — §5d)* | Gateway clearing / Bank | Customer deposits (2200) |
 | …completed later from the deposit *(built)* | Customer deposits | Sales revenue; Shipping income; VAT output |
 | …and its cost *(built)* | COGS at WAC | Inventory |
-| Sales return + refund *(Phase 8)* | Sales returns (4010); VAT output | Cash / Bank / AR |
-| …if restocked *(Phase 8)* | Inventory at the **original sale-line unit cost** | COGS |
-| Online order cancelled after payment *(Phase 8)* | handled as a full return + refund | |
+| Sales return + refund *(built — §5e)* | Sales returns (4010); VAT output; Shipping income (delivery refunded) | AR (what was still owed on the sale), then Cash / Bank / clearing |
+| …if restocked *(built)* | Inventory at the **original sale-line unit cost** | COGS |
+| Online order cancelled after payment *(built)* | handled as a full return + refund (order → REFUNDED) | |
+| Deposit refunded (order on hold or paid after cancellation) *(built)* | Customer deposits (2200) | Bank / gateway clearing |
 | Stock adjustment *(built — see §4)* | Inventory, or Adjustments (5010) / Write-off (5020) | Opening balance equity / Adjustments, or Inventory |
 | Stock transfer *(built)* | — no GL entry (same legal entity) — | |
-| Expense *(Phase 8)* | Expense account; VAT input if recoverable | Cash / Bank (paid) or AP (on account) |
+| Expense *(built — §5e)* | Expense account; VAT input when a VAT invoice was received | Cash / Bank (paid). Bills on account are supplier invoices (§5a) |
 | Cash over / short at shift close *(built — §5b)* | Cash (over) / Cash over-short (4900) (short) | Cash over-short (over) / Cash (short) |
-| Card settlement *(Phase 8)* | Bank; Bank charges (6050) | Card clearing |
+| Card settlement *(built)* | Bank; Bank charges (6050) | Card / gateway clearing |
 | Opening balances *(built — §5c)* | each debit-balance account | Opening balance equity (3900) — and the reverse for credit balances |
 | Year-end close *(built — §5c)* | income accounts | expense accounts; difference to Retained earnings (3100) |
 
@@ -148,6 +149,27 @@ The reservation is released and the stock issued (FEFO, moving average) in the s
 **Customer deposits.** If the money arrives when the order cannot be completed — its hold lapsed and the items sold, or it was already cancelled — it is posted Dr payment account / Cr Customer deposits (2200) (`posting_key = ONLINE_DEPOSIT:<order id>`). Completing an on-hold order later posts the sale with Dr Customer deposits instead of the payment account. Refunds of deposits come with Phase 8.
 
 **Controls (tested):** one sale and one journal per order however often the webhook is delivered; stock ledger = Inventory; trial balance balances.
+
+## 5e. After-sales and money in detail *(built in Phase 8)*
+
+**Returns.** A return is priced from the sale lines: a pro-rata share of each line's net, VAT and cost, except that returning everything still on a line takes exactly what is left, so the refunds of a line never exceed what was paid. Pending and approved returns count against what can still be returned. The refund (one transaction, `posting_key = SALE_RETURN:<id>`, `Idempotency-Key`):
+
+| Debit | Credit |
+|---|---|
+| Sales returns (4010) = net of the items | AR (1100) — up to what the customer still owed on the sale (`amount_settled` increases) |
+| VAT output (2100) = items VAT (+ delivery VAT) | the refund method's account = the rest |
+| Shipping income (4100) = delivery net, if refunded | |
+| Inventory (1200) = cost of restocked items | COGS (5000) = the same |
+
+Restocked items go back in at their **original sale cost** (stock movement `SALE_RETURN`), into the lots they were taken from for batch-tracked products; damaged, opened or expired items are not restocked and their cost stays in COGS. `sale_items.qty_returned` advances (CHECK ≤ qty). Cash paid out by a cashier with an open shift lowers that shift's expected cash.
+
+**Customer receipts** (`posting_key = CUSTOMER_RECEIPT:<id>`): Dr payment account / Cr AR. Applied to the customer's credit sales (never beyond each sale's outstanding amount, under row locks); the remainder stays as a credit. Customer balance = Σ(balance due − settled) − Σ unapplied receipts.
+
+**Expenses** (`posting_key = EXPENSE:<id>`, dated the expense date): Dr the category's expense account (net), Dr VAT input (VAT included in the amount paid, when a VAT rate is chosen), Cr the cash or bank account paid from.
+
+**Card settlement** (`SETTLEMENT`): Dr Bank (amount − charges), Dr Bank charges (6050), Cr the card or gateway clearing account (amount).
+
+**Controls (tested):** refunds never exceed what was sold (quantity and money); a return is refunded once however often the request is sent; Inventory = stock ledger after restocks; AR = Σ customer balances; reconciliations complete only at a nil difference.
 
 ## 6. Profit measures
 

@@ -1,7 +1,8 @@
 import { Link, useParams, useSearchParams } from 'react-router';
-import { Printer } from 'lucide-react';
+import { Printer, RotateCcw } from 'lucide-react';
 import type { SaleSummary } from '@rhoyards/shared';
 import { Badge, buttonVariants, Card, CardContent, CardHeader, CardTitle, Skeleton, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@rhoyards/ui';
+import { useAuth } from '../../auth/AuthProvider';
 import { DocumentList } from '../../components/DocumentList';
 import { PageHeader, QueryError } from '../../components/page';
 import { formatDateTime, formatMoney, formatQty } from '../../lib/format';
@@ -34,6 +35,7 @@ export function SalesPage() {
 
 export function SalePage() {
   const { id } = useParams();
+  const { can } = useAuth();
   const sale = useSale(id);
   if (sale.isError) return <QueryError error={sale.error} onRetry={() => void sale.refetch()} />;
   if (sale.isPending) return <Skeleton className="h-96 w-full" />;
@@ -51,10 +53,18 @@ export function SalePage() {
         description={`${formatDateTime(s.completedAt ?? s.createdAt)} · ${s.register?.name ?? s.location.name} · ${s.cashier}${s.shift ? ` · shift ${s.shift.number}` : ''}`}
         actions={
           s.status === 'COMPLETED' && (
-            <Link to={`/sales/${s.id}/receipt`} className={buttonVariants({ variant: 'outline' })}>
-              <Printer />
-              Receipt
-            </Link>
+            <>
+              {can('returns.create') && (
+                <Link to={`/returns/new?saleId=${s.id}`} className={buttonVariants({ variant: 'outline' })}>
+                  <RotateCcw />
+                  Return items
+                </Link>
+              )}
+              <Link to={`/sales/${s.id}/receipt`} className={buttonVariants({ variant: 'outline' })}>
+                <Printer />
+                Receipt
+              </Link>
+            </>
           )
         }
       />

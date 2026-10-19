@@ -282,30 +282,48 @@ export async function cashFlow(fromIso?: string, toIso?: string): Promise<CashFl
 
 // ── Aged receivables ──────────────────────────────────────────────────────
 
-/** Unpaid credit-sale balances by age (days since the sale), per customer; reconciled to the AR ledger. */
+/** Unpaid credit-sale balances by age (days since the sale), per customer, less unapplied payments; reconciled to AR. */
 export async function receivablesAging(asOf = todayIso()): Promise<ReceivablesAging> {
   const prisma = getPrisma();
   const asOfDate = toDate(asOf);
-  const [sales, ar] = await Promise.all([
+  const [sales, credits, ar] = await Promise.all([
     prisma.sale.findMany({
       where: { status: 'COMPLETED', customerId: { not: null }, balanceDue: { gt: 0 }, completedAt: { lt: startOfBusinessDay(isoDate(addDays(asOfDate, 1))) } },
-      select: { balanceDue: true, completedAt: true, customer: { select: { id: true, code: true, name: true } } },
+      select: { balanceDue: true, amountSettled: true, completedAt: true, customer: { select: { id: true, code: true, name: true } } },
+    }),
+    prisma.customerReceipt.findMany({
+      where: { unallocated: { gt: 0 }, receiptDate: { lte: asOfDate } },
+      select: { unallocated: true, customer: { select: { id: true, code: true, name: true } } },
     }),
     prisma.account.findUniqueOrThrow({ where: { systemKey: 'AR' } }),
   ]);
   const ledger = await totalsByAccount(prisma, { to: asOfDate });
 
-  type Buckets = [Decimal, Decimal, Decimal, Decimal];
+  type Buckets = [Decimal, Decimal, Decimal, Decimal, Decimal]; // 0-30, 31-60, 61-90, >90, credits
   const byCustomer = new Map<string, { customer: ReceivablesAgingRow['customer']; b: Buckets }>();
+  const entry = (c: ReceivablesAgingRow['customer']) =>
+    byCustomer.get(c.id) ?? (byCustomer.set(c.id, { customer: c, b: [ZERO, ZERO, ZERO, ZERO, ZERO] }), byCustomer.get(c.id)!);
   for (const s of sales) {
-    const entry = byCustomer.get(s.customer!.id) ?? { customer: s.customer!, b: [ZERO, ZERO, ZERO, ZERO] as Buckets };
+    const open = dec(s.balanceDue.toString()).minus(s.amountSettled.toString());
+    if (open.lte(0)) continue;
     const days = Math.floor((asOfDate.getTime() - businessDate(s.completedAt!).getTime()) / 86_400_000);
     const i = days <= 30 ? 0 : days <= 60 ? 1 : days <= 90 ? 2 : 3;
-    entry.b[i] = entry.b[i].plus(s.balanceDue.toString());
-    byCustomer.set(s.customer!.id, entry);
+    const e = entry(s.customer!);
+    e.b[i] = e.b[i]!.plus(open);
   }
-  const fmtRow = (b: Buckets) => ({ days0to30: fmt(b[0]), days31to60: fmt(b[1]), days61to90: fmt(b[2]), over90: fmt(b[3]), balance: fmt(sum(b)) });
-  const totals: Buckets = [ZERO, ZERO, ZERO, ZERO];
+  for (const c of credits) {
+    const e = entry(c.customer);
+    e.b[4] = e.b[4]!.plus(c.unallocated.toString());
+  }
+  const fmtRow = (b: Buckets) => ({
+    days0to30: fmt(b[0]),
+    days31to60: fmt(b[1]),
+    days61to90: fmt(b[2]),
+    over90: fmt(b[3]),
+    unappliedCredits: fmt(b[4]),
+    balance: fmt(b[0].plus(b[1]).plus(b[2]).plus(b[3]).minus(b[4])),
+  });
+  const totals: Buckets = [ZERO, ZERO, ZERO, ZERO, ZERO];
   for (const { b } of byCustomer.values()) b.forEach((v, i) => (totals[i] = totals[i]!.plus(v)));
   return {
     asOf,

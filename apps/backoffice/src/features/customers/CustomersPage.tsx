@@ -221,7 +221,7 @@ export function CustomersPage() {
                     <TableRow key={c.id} className={c.isActive ? undefined : 'opacity-60'}>
                       <TableCell>
                         <div className="font-medium">
-                          <Link to={`/sales?customerId=${c.id}`} className="hover:underline" title="View sales">
+                          <Link to={`/customers/${c.id}`} className="hover:underline" title="Account and payments">
                             {c.name}
                           </Link>{' '}
                           {c.type === 'WHOLESALE' && <Badge variant="secondary">Wholesale</Badge>} {!c.isActive && <Badge variant="outline">Inactive</Badge>}
@@ -230,7 +230,7 @@ export function CustomersPage() {
                       </TableCell>
                       <TableCell className="hidden md:table-cell text-sm">{[c.phone, c.email].filter(Boolean).join(' · ') || '—'}</TableCell>
                       <TableCell className="text-right">{c.allowCredit ? (Number(c.creditLimit) > 0 ? formatMoney(c.creditLimit) : 'No limit') : 'No credit'}</TableCell>
-                      <TableCell className="text-right font-medium">{Number(c.balance) > 0 ? formatMoney(c.balance) : '—'}</TableCell>
+                      <TableCell className="text-right font-medium">{Number(c.balance) > 0 ? formatMoney(c.balance) : Number(c.balance) < 0 ? `${formatMoney(c.balance.slice(1))} credit` : '—'}</TableCell>
                       {canManage && (
                         <TableCell>
                           <Button variant="ghost" size="icon" aria-label={`Edit ${c.name}`} onClick={() => setDialog({ open: true, customer: c })}>

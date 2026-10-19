@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { z } from 'zod';
 import {
   cancelOrderSchema,
+  refundDepositSchema,
+  refundOrderSchema,
   orderListQuerySchema,
   orderTransitionSchema,
   shippingMethodInputSchema,
@@ -14,7 +16,7 @@ import { listEnvelope } from '../../lib/pagination';
 import { parse } from '../../lib/validation';
 import { registry } from '../../openapi/registry';
 import { requireAnyPermission, requirePermission } from '../auth/auth.middleware';
-import { cancelOrder, getOrder, listOrders, moveOrder, retryFulfilment, verifyManualPayment } from './orders.service';
+import { cancelOrder, getOrder, listOrders, moveOrder, refundDeposit, refundPaidOrder, retryFulfilment, verifyManualPayment } from './orders.service';
 import { createShippingMethod, listShippingMethods, updateShippingMethod } from './shipping.service';
 
 const idParams = z.object({ id: z.uuid() });
@@ -27,6 +29,8 @@ const docs: [string, Method, string, z.ZodType | undefined][] = [
   ['/orders/{id}/cancel', 'post', 'Cancel an order awaiting payment; frees its stock (orders.manage)', cancelOrderSchema],
   ['/orders/{id}/verify-payment', 'post', 'Confirm a bank transfer for the order (payments.verify); creates the sale', verifyPaymentSchema],
   ['/orders/{id}/retry-fulfilment', 'post', 'Complete an on-hold order from its deposit once stock is back (orders.manage)', undefined],
+  ['/orders/{id}/refund', 'post', 'Cancel a paid, undelivered order: full return to stock and refund (orders.manage + refunds.process)', refundOrderSchema],
+  ['/orders/{id}/refund-deposit', 'post', 'Pay back a deposit held for an on-hold or cancelled order (refunds.process)', refundDepositSchema],
   ['/shipping-methods', 'get', 'Delivery options (orders.view or settings.view)', undefined],
   ['/shipping-methods', 'post', 'Add a delivery option (settings.manage)', shippingMethodInputSchema],
   ['/shipping-methods/{id}', 'patch', 'Edit a delivery option (settings.manage)', shippingMethodUpdateSchema],
@@ -75,6 +79,15 @@ export function ordersRouter(env: Env) {
   });
   router.post('/orders/:id/retry-fulfilment', ...manage, async (req, res) => {
     res.json({ data: await retryFulfilment(parse(idParams, req.params).id, req.auth!.user.id, env, requestContext(req)) });
+  });
+
+  router.post('/orders/:id/refund', ...requirePermission('orders.manage', 'refunds.process'), async (req, res) => {
+    const input = parse(refundOrderSchema, req.body);
+    res.json({ data: await refundPaidOrder(parse(idParams, req.params).id, input, req.auth!.user.id, requestContext(req)) });
+  });
+  router.post('/orders/:id/refund-deposit', ...requirePermission('refunds.process'), async (req, res) => {
+    const input = parse(refundDepositSchema, req.body);
+    res.json({ data: await refundDeposit(parse(idParams, req.params).id, input, req.auth!.user.id, requestContext(req)) });
   });
 
   router.get('/shipping-methods', ...requireAnyPermission('orders.view', 'settings.view'), async (_req, res) => {

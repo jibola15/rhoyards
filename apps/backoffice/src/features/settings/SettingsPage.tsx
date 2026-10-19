@@ -23,6 +23,7 @@ import { PageHeader, QueryError } from '../../components/page';
 import { api } from '../../lib/api';
 import { LocationsCard } from './LocationsCard';
 import { PaymentMethodsCard, RegistersCard } from './PosSetupCards';
+import { ExpenseCategoriesCard } from './ExpenseCategoriesCard';
 import { ShippingMethodsCard } from './ShippingMethodsCard';
 import { TaxRatesCard } from './TaxRatesCard';
 
@@ -300,6 +301,7 @@ export function SettingsPage() {
           )}
         </SectionForm>
         <ShippingMethodsCard />
+        <ExpenseCategoriesCard />
 
         <SectionForm
           section="receipt"

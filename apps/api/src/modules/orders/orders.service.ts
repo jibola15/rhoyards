@@ -26,6 +26,7 @@ import { priceCart } from '../store/cart.service';
 import type { CustomerContext } from '../store/customer-auth';
 import { providerFor, type PaymentProvider, type WebhookEvent } from '../payments/providers';
 import { createOnlineSale, type OrderForSale } from './online-sale';
+import { completeReturnTx, createReturnTx, returnableSale } from '../returns/returns.service';
 
 type Tx = Prisma.TransactionClient;
 const money = (v: { toFixed(dp: number): string }) => new Prisma.Decimal(v.toFixed(2));
@@ -39,7 +40,7 @@ const include = {
   payments: { orderBy: { createdAt: 'desc' }, include: { verifiedBy: { select: { fullName: true } } } },
   customer: true,
   location: { select: { id: true, name: true } },
-  sale: { select: { id: true, number: true } },
+  sale: { select: { id: true, number: true, returns: { select: { id: true, number: true, status: true, total: true }, orderBy: { requestedAt: 'asc' } } } },
 } satisfies Prisma.OnlineOrderInclude;
 type Row = Prisma.OnlineOrderGetPayload<{ include: typeof include }>;
 
@@ -94,6 +95,8 @@ function toDetail(o: Row): OrderDetail {
     note: o.note,
     sale: o.sale && o.sale.number ? { id: o.sale.id, number: o.sale.number } : null,
     depositJournalId: o.depositJournalId,
+    depositRefundJournalId: o.depositRefundJournalId,
+    returns: o.sale?.returns.map((r) => ({ id: r.id, number: r.number, status: r.status, total: r.total.toFixed(2) })) ?? [],
     payments: o.payments.map((p) => ({
       id: p.id,
       provider: p.provider,
@@ -396,6 +399,73 @@ export async function restartPayment(customerId: string, number: string, env: En
     await tx.paymentAttempt.create({ data: { orderId: order.id, provider: provider.code, reference: payment.reference, amount: order.total, providerData: payment.providerData } });
     await writeAudit(tx, ctx, { action: 'order.payment_restarted', entityType: 'online_order', entityId: order.id });
     return getCustomerOrder(customerId, number, tx);
+  });
+}
+
+// ── Refunds ──────────────────────────────────────────────────────────────
+
+const methodForProvider = (provider: string | null) => (provider === 'TEST' ? 'ONLINE_CARD' : 'ONLINE_TRANSFER');
+
+/**
+ * Cancels a paid order that has not been delivered: everything still on it comes back (to stock, at its sale cost),
+ * the customer is refunded through the order's payment method (or the one chosen), and the order is REFUNDED.
+ * One transaction; delivered orders go through the ordinary returns screen instead.
+ */
+export async function refundPaidOrder(
+  orderId: string,
+  input: { reason: string; refundShipping: boolean; paymentMethodId?: string | undefined; reference?: string | null | undefined },
+  actorId: string,
+  ctx: RequestContext,
+) {
+  return transaction(async (tx) => {
+    const order = await lockOrder(tx, orderId);
+    if (!['PAID', 'PROCESSING', 'PACKED', 'SHIPPED'].includes(order.status) || !order.saleId) {
+      throw businessRule('Only paid orders not yet delivered can be refunded here; use a return for delivered orders');
+    }
+    const left = await returnableSale(order.saleId, tx);
+    const lines = left.lines.filter((l) => dec(l.returnable).gt(0)).map((l) => ({ saleItemId: l.saleItemId, qty: l.returnable, condition: 'RESALEABLE' as const, restock: true }));
+    const shipping = input.refundShipping && dec(left.shippingRefundable).gt(0);
+    if (lines.length === 0) throw businessRule('Everything on this order has already been returned');
+    const ret = await createReturnTx(tx, { saleId: order.saleId, reason: input.reason, lines, refundShipping: shipping, approve: true }, actorId, ctx);
+    const methodId = input.paymentMethodId ?? (await tx.paymentMethod.findUniqueOrThrow({ where: { code: methodForProvider(order.provider) } })).id;
+    await completeReturnTx(tx, ret.id, { paymentMethodId: methodId, reference: input.reference ?? null }, actorId, ctx);
+    await tx.onlineOrder.update({ where: { id: orderId }, data: { status: 'REFUNDED', cancelledAt: new Date() } });
+    await addHistory(tx, orderId, order.status, 'REFUNDED', { userId: actorId, note: `${input.reason} (return ${ret.number})` });
+    await writeAudit(tx, ctx, { action: 'order.refunded', entityType: 'online_order', entityId: orderId, after: { returnId: ret.id } });
+    return getOrder(orderId, tx);
+  });
+}
+
+/** Pays back money held as a customer deposit (order on hold, or paid after cancellation). An on-hold order is then cancelled. */
+export async function refundDeposit(orderId: string, input: { paymentMethodId?: string | undefined; reference?: string | null | undefined }, actorId: string, ctx: RequestContext) {
+  return transaction(async (tx) => {
+    const order = await lockOrder(tx, orderId);
+    if (!order.depositJournalId || order.depositRefundJournalId || !['ON_HOLD', 'CANCELLED'].includes(order.status)) {
+      throw businessRule('This order has no deposit waiting to be refunded');
+    }
+    const method = input.paymentMethodId
+      ? await tx.paymentMethod.findUnique({ where: { id: input.paymentMethodId } })
+      : await tx.paymentMethod.findUnique({ where: { code: methodForProvider(order.provider) } });
+    if (!method?.isActive) throw new AppError(400, 'VALIDATION_ERROR', 'Choose an active payment method', { field: 'paymentMethodId' });
+    const journal = await postJournal(tx, {
+      entryDate: businessDate(),
+      sourceType: 'ONLINE_ORDER',
+      sourceId: order.id,
+      postingKey: `ONLINE_DEPOSIT_REFUND:${order.id}`,
+      description: `Deposit for order ${order.number} refunded`,
+      lines: [
+        { accountKey: 'CUSTOMER_DEPOSITS', debit: order.total.toString() },
+        { accountId: method.accountId, credit: order.total.toString(), ...(input.reference ? { memo: input.reference } : {}) },
+      ],
+      actorId,
+    });
+    await tx.onlineOrder.update({
+      where: { id: orderId },
+      data: { depositRefundJournalId: journal.id, ...(order.status === 'ON_HOLD' ? { status: 'CANCELLED', cancelledAt: new Date() } : {}) },
+    });
+    await addHistory(tx, orderId, order.status, order.status === 'ON_HOLD' ? 'CANCELLED' : order.status, { userId: actorId, note: 'Deposit refunded to the customer' });
+    await writeAudit(tx, ctx, { action: 'order.deposit_refunded', entityType: 'online_order', entityId: orderId, after: { journalId: journal.id } });
+    return getOrder(orderId, tx);
   });
 }
 

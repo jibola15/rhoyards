@@ -12,6 +12,9 @@ import { createLogger } from './lib/logger';
 import { LocalDiskStorage, type FileStorage } from './lib/storage';
 import { accountingRouter } from './modules/accounting/accounting.routes';
 import { ordersRouter } from './modules/orders/orders.routes';
+import { bankingRouter } from './modules/banking/banking.routes';
+import { expensesRouter } from './modules/expenses/expenses.routes';
+import { returnsRouter } from './modules/returns/returns.routes';
 import { webhooksRouter } from './modules/payments/webhooks';
 import { storeRouter } from './modules/store/store.routes';
 import { catalogRouter } from './modules/catalog/catalog.routes';
@@ -112,6 +115,9 @@ export function createApp(
   app.use('/api/v1', posRouter);
   app.use('/api/v1', accountingRouter);
   app.use('/api/v1', ordersRouter(env));
+  app.use('/api/v1', returnsRouter);
+  app.use('/api/v1', expensesRouter);
+  app.use('/api/v1', bankingRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler(logger));

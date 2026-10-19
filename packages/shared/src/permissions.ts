@@ -31,6 +31,7 @@ export const PERMISSIONS = {
   // Customers & sales
   'customers.view': 'View customers and statements',
   'customers.manage': 'Create and edit customers',
+  'customer_receipts.manage': 'Record customer payments against credit sales',
   'pos.sell': 'Ring up sales at the POS',
   'sales.view': 'View all sales and receipts',
   'pos.discount': 'Apply discounts within the standard limit',
@@ -101,7 +102,7 @@ export const SYSTEM_ROLES: Record<RoleCode, SystemRoleDefinition> = {
       'users.view', 'users.manage', 'settings.view', 'locations.manage', 'audit.view',
       'catalog.view', 'catalog.manage', 'inventory.view', 'inventory.adjust', 'inventory.adjust.approve',
       'inventory.transfer', 'suppliers.view', 'suppliers.manage', 'purchasing.view', 'purchasing.manage',
-      'purchasing.approve', 'supplier_invoices.manage', 'supplier_payments.manage', 'customers.view', 'customers.manage', 'pos.sell', 'pos.discount',
+      'purchasing.approve', 'supplier_invoices.manage', 'supplier_payments.manage', 'customers.view', 'customers.manage', 'customer_receipts.manage', 'pos.sell', 'pos.discount',
       'pos.discount.override', 'pos.price.override', 'pos.credit_sale', 'pos.shift.manage', 'pos.shift.reconcile', 'sales.view',
       'returns.create', 'returns.approve', 'refunds.process', 'orders.view', 'orders.manage', 'payments.verify',
       'expenses.view', 'expenses.create', 'expenses.approve', 'dashboard.view', 'reports.sales',
@@ -113,7 +114,7 @@ export const SYSTEM_ROLES: Record<RoleCode, SystemRoleDefinition> = {
     description: 'Ledger, tax, payables, expenses, reconciliation and financial reporting',
     permissions: [
       'settings.view', 'settings.manage', 'taxes.manage', 'audit.view', 'catalog.view', 'inventory.view',
-      'suppliers.view', 'purchasing.view', 'supplier_invoices.manage', 'supplier_payments.manage', 'customers.view', 'orders.view',
+      'suppliers.view', 'purchasing.view', 'supplier_invoices.manage', 'supplier_payments.manage', 'customers.view', 'customer_receipts.manage', 'orders.view',
       'payments.verify', 'pos.shift.reconcile', 'sales.view', 'expenses.view', 'expenses.create', 'expenses.approve',
       'accounting.view', 'accounts.manage', 'journals.create', 'journals.post', 'journals.reverse',
       'periods.manage', 'reconciliation.manage', 'dashboard.view', 'reports.sales', 'reports.inventory',

@@ -50,6 +50,19 @@ const SalePage = page(salePages, 'SalePage');
 const ReceiptPage = page(() => import('./features/pos/Receipt'), 'ReceiptPage');
 const CustomersPage = page(() => import('./features/customers/CustomersPage'), 'CustomersPage');
 const orderPages = () => import('./features/orders/OrdersPages');
+const returnPages = () => import('./features/returns/ReturnsPages');
+const ReturnsPage = page(returnPages, 'ReturnsPage');
+const NewReturnPage = page(returnPages, 'NewReturnPage');
+const ReturnPage = page(returnPages, 'ReturnPage');
+const CustomerDetailPage = page(() => import('./features/customers/CustomerDetailPage'), 'CustomerDetailPage');
+const expensePages = () => import('./features/expenses/ExpensesPages');
+const ExpensesPage = page(expensePages, 'ExpensesPage');
+const ExpensePage = page(expensePages, 'ExpensePage');
+const bankingPages = () => import('./features/banking/BankingPages');
+const ReconciliationsPage = page(bankingPages, 'ReconciliationsPage');
+const ReconciliationPage = page(bankingPages, 'ReconciliationPage');
+const RETURN_VIEWERS: Permission[] = ['returns.create', 'returns.approve', 'refunds.process', 'sales.view'];
+const EXPENSE_USERS: Permission[] = ['expenses.view', 'expenses.create', 'expenses.approve'];
 const OrdersPage = page(orderPages, 'OrdersPage');
 const OrderPage = page(orderPages, 'OrderPage');
 const AccountsPage = page(() => import('./features/accounting/AccountsPage'), 'AccountsPage');
@@ -117,6 +130,15 @@ export const routes: RouteObject[] = [
           guarded('sales', ['sales.view', 'pos.sell'], <SalesPage />),
           guarded('sales/:id', ['sales.view', 'pos.sell'], <SalePage />),
           guarded('customers', 'customers.view', <CustomersPage />),
+          guarded('customers/:id', ['customers.view', 'customer_receipts.manage'], <CustomerDetailPage />),
+          guarded('returns', RETURN_VIEWERS, <ReturnsPage />),
+          guarded('returns/new', 'returns.create', <NewReturnPage />),
+          guarded('returns/:id', RETURN_VIEWERS, <ReturnPage />),
+          guarded('expenses', EXPENSE_USERS, <ExpensesPage />),
+          guarded('expenses/new', 'expenses.create', <ExpensePage />),
+          guarded('expenses/:id', EXPENSE_USERS, <ExpensePage />),
+          guarded('banking/reconciliations', ['reconciliation.manage', 'accounting.view'], <ReconciliationsPage />),
+          guarded('banking/reconciliations/:id', ['reconciliation.manage', 'accounting.view'], <ReconciliationPage />),
           guarded('orders', 'orders.view', <OrdersPage />),
           guarded('orders/:id', 'orders.view', <OrderPage />),
           guarded('accounting/accounts', 'accounting.view', <AccountsPage />),

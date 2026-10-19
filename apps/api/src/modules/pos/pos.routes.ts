@@ -148,7 +148,7 @@ posRouter.get('/sales/:id/receipt', ...requireAny('sales.view', 'pos.sell'), asy
 });
 
 // ── Setup: payment methods and registers ────────────────────────────────
-posRouter.get('/payment-methods', ...requireAny('settings.view', 'pos.sell'), async (_req, res) => {
+posRouter.get('/payment-methods', ...requireAny('settings.view', 'pos.sell', 'refunds.process', 'customer_receipts.manage'), async (_req, res) => {
   res.json({ data: await listPaymentMethods() });
 });
 posRouter.post('/payment-methods', ...requirePermission('settings.manage'), async (req, res) => {

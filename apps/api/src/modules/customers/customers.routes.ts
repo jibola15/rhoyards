@@ -1,12 +1,14 @@
 import { Router, type Request } from 'express';
 import { forbidden } from '../../lib/errors';
 import { z } from 'zod';
-import { customerInputSchema, customerListQuerySchema, customerUpdateSchema } from '@rhoyards/shared';
+import { customerInputSchema, customerListQuerySchema, customerReceiptSchema, customerUpdateSchema } from '@rhoyards/shared';
+import { withIdempotency } from '../../lib/idempotency';
+import { createCustomerReceipt, customerStatement, getCustomerReceipt } from './receivables.service';
 import { requestContext } from '../../lib/audit';
 import { listEnvelope } from '../../lib/pagination';
 import { parse } from '../../lib/validation';
 import { registry } from '../../openapi/registry';
-import { requirePermission } from '../auth/auth.middleware';
+import { requireAnyPermission, requirePermission } from '../auth/auth.middleware';
 import { createCustomer, getCustomer, listCustomers, updateCustomer } from './customers.service';
 
 const idParams = z.object({ id: z.uuid() });
@@ -43,4 +45,24 @@ customersRouter.patch('/customers/:id', ...requirePermission('customers.manage')
   const input = parse(customerUpdateSchema, req.body);
   assertMayGrantCredit(req, input.allowCredit !== undefined || input.creditLimit !== undefined);
   res.json({ data: await updateCustomer(parse(idParams, req.params).id, input, requestContext(req)) });
+});
+
+registry.registerPath({ method: 'get', path: '/customers/{id}/statement', tags: ['Customers'], summary: 'Credit sales, payments and return credits with running balance; open sales (customers.view)', request: { params: idParams }, responses: { 200: { description: 'Statement' } } });
+registry.registerPath({ method: 'post', path: '/customer-receipts', tags: ['Customers'], summary: 'Record a customer payment against credit sales (customer_receipts.manage, Idempotency-Key)', request: json(customerReceiptSchema), responses: { 201: { description: 'Recorded' } } });
+registry.registerPath({ method: 'get', path: '/customer-receipts/{id}', tags: ['Customers'], summary: 'Customer payment (customers.view)', request: { params: idParams }, responses: { 200: { description: 'Receipt' } } });
+
+customersRouter.get('/customers/:id/statement', ...requireAnyPermission('customers.view', 'customer_receipts.manage'), async (req, res) => {
+  res.json({ data: await customerStatement(parse(idParams, req.params).id) });
+});
+customersRouter.post('/customer-receipts', ...requirePermission('customer_receipts.manage'), async (req, res) => {
+  const input = parse(customerReceiptSchema, req.body);
+  const result = await withIdempotency(`customer-receipt:${req.auth!.user.id}`, req.get('idempotency-key'), input, async () => ({
+    status: 201,
+    body: { data: await createCustomerReceipt(input, req.auth!.user.id, requestContext(req)) },
+  }));
+  if (result.replayed) res.setHeader('Idempotent-Replayed', 'true');
+  res.status(result.status).json(result.body);
+});
+customersRouter.get('/customer-receipts/:id', ...requireAnyPermission('customers.view', 'customer_receipts.manage'), async (req, res) => {
+  res.json({ data: await getCustomerReceipt(parse(idParams, req.params).id) });
 });

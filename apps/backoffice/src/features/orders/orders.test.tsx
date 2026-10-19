@@ -29,6 +29,8 @@ const order = (over: Partial<OrderDetail> = {}): OrderDetail => ({
   sale: null,
   payments: [{ id: 'pa1', provider: 'MANUAL', reference: 'WEB-000007', amount: '2150.00', status: 'INITIATED', verifiedAt: null, verifiedBy: null, createdAt: new Date().toISOString() }],
   depositJournalId: null,
+  depositRefundJournalId: null,
+  returns: [],
   ...over,
 });
 

@@ -278,6 +278,7 @@ const AR_COLS: [keyof Omit<ReceivablesAgingRow, 'customer'>, string][] = [
   ['days31to60', '31–60'],
   ['days61to90', '61–90'],
   ['over90', 'Over 90'],
+  ['unappliedCredits', 'Credits'],
   ['balance', 'Balance'],
 ];
 

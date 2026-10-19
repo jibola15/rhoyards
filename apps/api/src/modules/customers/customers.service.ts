@@ -1,24 +1,16 @@
 import { Prisma, type Customer } from '@prisma/client';
 import type { z } from 'zod';
-import { dec, type CustomerSummary, type customerInputSchema, type customerListQuerySchema, type customerUpdateSchema } from '@rhoyards/shared';
+import { dec, ZERO, type CustomerSummary, type Decimal, type customerInputSchema, type customerListQuerySchema, type customerUpdateSchema } from '@rhoyards/shared';
 import { writeAudit, type RequestContext } from '../../lib/audit';
 import { notFound } from '../../lib/errors';
 import { orderBy, pageArgs } from '../../lib/pagination';
 import { getPrisma, transaction, type Db } from '../../lib/prisma';
 import { nextDocumentNumber } from '../../lib/sequences';
+import { customerBalances } from './receivables.service';
 
-/** Amount each customer owes on credit sales (receipts against them arrive in Phase 8). */
-export async function customerBalances(db: Db, ids: string[]): Promise<Map<string, Prisma.Decimal>> {
-  if (ids.length === 0) return new Map();
-  const rows = await db.sale.groupBy({
-    by: ['customerId'],
-    where: { customerId: { in: ids }, status: 'COMPLETED', balanceDue: { gt: 0 } },
-    _sum: { balanceDue: true },
-  });
-  return new Map(rows.map((r) => [r.customerId!, r._sum.balanceDue ?? new Prisma.Decimal(0)]));
-}
+export { customerBalances };
 
-const toSummary = (c: Customer, balance?: Prisma.Decimal): CustomerSummary => ({
+const toSummary = (c: Customer, balance?: Decimal): CustomerSummary => ({
   id: c.id,
   code: c.code,
   name: c.name,
@@ -28,7 +20,7 @@ const toSummary = (c: Customer, balance?: Prisma.Decimal): CustomerSummary => ({
   address: c.address,
   allowCredit: c.allowCredit,
   creditLimit: c.creditLimit.toFixed(2),
-  balance: (balance ?? new Prisma.Decimal(0)).toFixed(2),
+  balance: (balance ?? ZERO).toFixed(2),
   notes: c.notes,
   isActive: c.isActive,
   createdAt: c.createdAt.toISOString(),
@@ -121,6 +113,6 @@ export async function updateCustomer(id: string, input: z.infer<typeof customerU
 /** Credit still available to a customer (limit − balance owed). */
 export async function availableCredit(db: Db, customerId: string) {
   const c = await db.customer.findUniqueOrThrow({ where: { id: customerId } });
-  const owed = (await customerBalances(db, [customerId])).get(customerId) ?? new Prisma.Decimal(0);
-  return { customer: c, owed: dec(owed.toString()), available: dec(c.creditLimit.toString()).minus(owed.toString()) };
+  const owed = (await customerBalances(db, [customerId])).get(customerId) ?? ZERO;
+  return { customer: c, owed, available: dec(c.creditLimit.toString()).minus(owed) };
 }

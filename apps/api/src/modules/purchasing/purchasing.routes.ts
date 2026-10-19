@@ -231,7 +231,7 @@ purchasingRouter.get('/reports/payables-aging', ...requireAny('purchasing.view',
   const { asOf } = parse(z.object({ asOf: dateInput.optional() }), req.query);
   res.json({ data: await payablesAging(asOf) });
 });
-purchasingRouter.get('/purchasing/accounts', ...requireAny('purchasing.view', 'supplier_invoices.manage', 'supplier_payments.manage', 'settings.manage'), async (req, res) => {
+purchasingRouter.get('/purchasing/accounts', ...requireAny('purchasing.view', 'supplier_invoices.manage', 'supplier_payments.manage', 'settings.manage', 'expenses.create', 'expenses.approve', 'reconciliation.manage'), async (req, res) => {
   const { kind } = parse(z.object({ kind: z.enum(['payment', 'expense']) }), req.query);
   res.json({ data: await accountOptions(kind) });
 });

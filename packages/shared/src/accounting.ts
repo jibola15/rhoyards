@@ -126,10 +126,15 @@ export const JOURNAL_SOURCES = {
   SUPPLIER_INVOICE: 'Supplier invoice',
   SUPPLIER_PAYMENT: 'Supplier payment',
   PURCHASE_RETURN: 'Return to supplier',
+  ONLINE_ORDER: 'Online order deposit',
+  SALE_RETURN: 'Sales return / refund',
+  CUSTOMER_RECEIPT: 'Customer payment',
+  EXPENSE: 'Expense',
+  SETTLEMENT: 'Card settlement',
 } as const;
 
 /** Only entries made in the ledger itself can be reversed there; documents are corrected through their own screens. */
-export const REVERSIBLE_SOURCES = ['MANUAL', 'OPENING_BALANCE'] as const;
+export const REVERSIBLE_SOURCES = ['MANUAL', 'OPENING_BALANCE', 'SETTLEMENT'] as const;
 
 export const journalListQuerySchema = listQuerySchema.extend({
   status: z.enum(['DRAFT', 'POSTED']).optional(),
@@ -318,6 +323,8 @@ export interface ReceivablesAgingRow {
   days31to60: string;
   days61to90: string;
   over90: string;
+  /** Payments received but not applied to a sale. */
+  unappliedCredits: string;
   balance: string;
 }
 

@@ -119,7 +119,7 @@ function PromptDialog({
 function OrderView({ order }: { order: OrderDetail }) {
   const { can } = useAuth();
   const queryClient = useQueryClient();
-  const [dialog, setDialog] = useState<'verify' | 'cancel' | 'ship' | null>(null);
+  const [dialog, setDialog] = useState<'verify' | 'cancel' | 'ship' | 'refund' | 'deposit' | null>(null);
   const update = async (o: OrderDetail, message: string) => {
     queryClient.setQueryData(['orders', 'detail', o.id], o);
     await queryClient.invalidateQueries({ queryKey: ['orders', 'list'] });
@@ -184,6 +184,21 @@ function OrderView({ order }: { order: OrderDetail }) {
               <Button variant="outline" onClick={() => setDialog('cancel')}>
                 Cancel order
               </Button>
+            )}
+            {['PAID', 'PROCESSING', 'PACKED', 'SHIPPED'].includes(order.status) && can('orders.manage') && can('refunds.process') && (
+              <Button variant="outline" onClick={() => setDialog('refund')}>
+                Cancel and refund
+              </Button>
+            )}
+            {order.depositJournalId && !order.depositRefundJournalId && can('refunds.process') && (
+              <Button variant="outline" onClick={() => setDialog('deposit')}>
+                Refund deposit
+              </Button>
+            )}
+            {order.status === 'DELIVERED' && order.sale && can('returns.create') && (
+              <Link to={`/returns/new?saleId=${order.sale.id}`} className="inline-flex items-center text-sm underline">
+                Return items
+              </Link>
             )}
           </div>
         </CardContent>
@@ -293,6 +308,47 @@ function OrderView({ order }: { order: OrderDetail }) {
         destructive
         onConfirm={async (reason) => update(await post('cancel', { reason }), 'Order cancelled')}
       />
+      <PromptDialog
+        open={dialog === 'refund'}
+        onOpenChange={(o) => setDialog(o ? 'refund' : null)}
+        title={`Cancel and refund ${order.number}?`}
+        description={`Everything goes back into stock and ${formatMoney(order.total)} (delivery included) is refunded the way the customer paid.`}
+        label="Reason"
+        confirmLabel="Refund order"
+        minLength={3}
+        destructive
+        onConfirm={async (reason) => update(await post('refund', { reason, refundShipping: true }), 'Order refunded')}
+      />
+      <PromptDialog
+        open={dialog === 'deposit'}
+        onOpenChange={(o) => setDialog(o ? 'deposit' : null)}
+        title={`Refund the deposit for ${order.number}?`}
+        description={`Pays ${formatMoney(order.total)} back the way the customer paid.${order.status === 'ON_HOLD' ? ' The order is then cancelled.' : ''}`}
+        label="Transfer reference (optional)"
+        confirmLabel="Refund deposit"
+        onConfirm={async (reference) => update(await post('refund-deposit', reference ? { reference } : {}), 'Deposit refunded')}
+      />
+      {order.returns.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Returns</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="divide-y text-sm">
+              {order.returns.map((r) => (
+                <li key={r.id} className="flex justify-between py-2">
+                  <Link to={`/returns/${r.id}`} className="font-mono hover:underline">
+                    {r.number}
+                  </Link>
+                  <span>
+                    {formatMoney(r.total)} <StatusBadge status={r.status === 'COMPLETED' ? 'REFUNDED' : r.status} />
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
       <PromptDialog
         open={dialog === 'ship'}
         onOpenChange={(o) => setDialog(o ? 'ship' : null)}

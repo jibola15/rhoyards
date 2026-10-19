@@ -138,6 +138,18 @@ export async function seedBase(prisma: PrismaClient, now = new Date()) {
     skipDuplicates: true,
   });
 
+  // Expense categories, each charging an operating-expense account (editable in Settings).
+  const expenseAccounts = await prisma.account.findMany({ where: { code: { in: ['6000', '6010', '6020', '6030', '6040', '6050', '6060', '6070', '6080', '6090', '6900'] } } });
+  const categoryNames: Record<string, string> = {
+    '6000': 'Rent', '6010': 'Salaries and wages', '6020': 'Electricity, fuel and utilities', '6030': 'Marketing',
+    '6040': 'Transport and delivery', '6050': 'Bank charges', '6060': 'Repairs and maintenance', '6070': 'Packaging',
+    '6080': 'Office and administration', '6090': 'Professional fees', '6900': 'Miscellaneous',
+  };
+  await prisma.expenseCategory.createMany({
+    data: expenseAccounts.map((a) => ({ name: categoryNames[a.code]!, accountId: a.id })),
+    skipDuplicates: true,
+  });
+
   // The author of automatic postings with no staff member behind them (e.g. a payment confirmed by webhook).
   // Disabled, with an unusable password hash: it can never sign in.
   await prisma.user.upsert({

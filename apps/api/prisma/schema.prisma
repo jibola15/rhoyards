@@ -77,6 +77,14 @@ model User {
   discountsApproved      Sale[]               @relation("SaleDiscountApprover")
   orderStatusChanges     OrderStatusHistory[]
   paymentsVerified       PaymentAttempt[]
+  returnsRequested       SaleReturn[]         @relation("ReturnRequestedBy")
+  returnsApproved        SaleReturn[]         @relation("ReturnApprovedBy")
+  returnsCompleted       SaleReturn[]         @relation("ReturnCompletedBy")
+  customerReceipts       CustomerReceipt[]
+  expensesCreated        Expense[]            @relation("ExpenseCreatedBy")
+  expensesApproved       Expense[]            @relation("ExpenseApprovedBy")
+  reconciliationsStarted BankReconciliation[] @relation("ReconStartedBy")
+  reconciliationsDone    BankReconciliation[] @relation("ReconCompletedBy")
 
   @@index([status])
   @@map("users")
@@ -238,6 +246,7 @@ model TaxRate {
   invoiceLines  SupplierInvoiceLine[]
   saleItems     SaleItem[]
   orderItems    OnlineOrderItem[]
+  expenses      Expense[]
 
   @@map("tax_rates")
 }
@@ -329,14 +338,18 @@ model Account {
   createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt   DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  parent           Account?              @relation("AccountTree", fields: [parentId], references: [id], onDelete: Restrict)
-  children         Account[]             @relation("AccountTree")
-  journalLines     JournalLine[]
-  taxOutputFor     TaxRate[]             @relation("TaxOutputAccount")
-  taxInputFor      TaxRate[]             @relation("TaxInputAccount")
-  invoiceLines     SupplierInvoiceLine[]
-  supplierPayments SupplierPayment[]
-  paymentMethods   PaymentMethod[]
+  parent            Account?              @relation("AccountTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children          Account[]             @relation("AccountTree")
+  journalLines      JournalLine[]
+  taxOutputFor      TaxRate[]             @relation("TaxOutputAccount")
+  taxInputFor       TaxRate[]             @relation("TaxInputAccount")
+  invoiceLines      SupplierInvoiceLine[]
+  supplierPayments  SupplierPayment[]
+  paymentMethods    PaymentMethod[]
+  expenseCategories ExpenseCategory[]
+  expensesCharged   Expense[]             @relation("ExpenseAccount")
+  expensesPaid      Expense[]             @relation("ExpensePaymentAccount")
+  reconciliations   BankReconciliation[]
 
   @@index([type])
   @@map("accounts")
@@ -429,9 +442,10 @@ model JournalLine {
   memo       String?
   locationId String? @map("location_id") @db.Uuid
 
-  entry    JournalEntry @relation(fields: [entryId], references: [id], onDelete: Restrict)
-  account  Account      @relation(fields: [accountId], references: [id], onDelete: Restrict)
-  location Location?    @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  entry    JournalEntry            @relation(fields: [entryId], references: [id], onDelete: Restrict)
+  account  Account                 @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  location Location?               @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  cleared  BankReconciliationLine?
 
   @@unique([entryId, lineNo])
   @@index([accountId])
@@ -459,8 +473,9 @@ model File {
   uploadedById String         @map("uploaded_by_id") @db.Uuid
   createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  uploadedBy    User           @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
-  productImages ProductImage[]
+  uploadedBy         User                @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
+  productImages      ProductImage[]
+  expenseAttachments ExpenseAttachment[]
 
   @@map("files")
 }
@@ -1198,6 +1213,7 @@ model Customer {
   account   CustomerAccount?
   addresses CustomerAddress[]
   orders    OnlineOrder[]
+  receipts  CustomerReceipt[]
 
   @@index([name])
   @@index([phone])
@@ -1228,8 +1244,10 @@ model PaymentMethod {
   createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt         DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  account  Account       @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  account  Account           @relation(fields: [accountId], references: [id], onDelete: Restrict)
   payments SalePayment[]
+  refunds  SaleReturn[]
+  receipts CustomerReceipt[]
 
   @@map("payment_methods")
 }
@@ -1273,10 +1291,11 @@ model CashierShift {
   closeNote      String?     @map("close_note")
   journalEntryId String?     @map("journal_entry_id") @db.Uuid
 
-  register Register @relation(fields: [registerId], references: [id], onDelete: Restrict)
-  cashier  User     @relation("ShiftCashier", fields: [cashierId], references: [id], onDelete: Restrict)
-  closedBy User?    @relation("ShiftClosedBy", fields: [closedById], references: [id], onDelete: Restrict)
+  register Register     @relation(fields: [registerId], references: [id], onDelete: Restrict)
+  cashier  User         @relation("ShiftCashier", fields: [cashierId], references: [id], onDelete: Restrict)
+  closedBy User?        @relation("ShiftClosedBy", fields: [closedById], references: [id], onDelete: Restrict)
   sales    Sale[]
+  refunds  SaleReturn[]
 
   @@index([registerId, openedAt])
   @@map("cashier_shifts")
@@ -1322,6 +1341,8 @@ model Sale {
   costTotal            Decimal     @default(0) @map("cost_total") @db.Decimal(18, 2)
   /// Delivery charged on an online sale, net of VAT (its VAT is in tax_total). Posted to Shipping income.
   shippingAmount       Decimal     @default(0) @map("shipping_amount") @db.Decimal(18, 2)
+  /// Of balance_due: what has since been paid (customer receipts) or credited (returns). Outstanding = balance_due − this.
+  amountSettled        Decimal     @default(0) @map("amount_settled") @db.Decimal(18, 2)
   discountApprovedById String?     @map("discount_approved_by_id") @db.Uuid
   idempotencyKey       String?     @unique @map("idempotency_key")
   journalEntryId       String?     @map("journal_entry_id") @db.Uuid
@@ -1330,15 +1351,17 @@ model Sale {
   createdAt            DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt            DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  location           Location      @relation(fields: [locationId], references: [id], onDelete: Restrict)
-  register           Register?     @relation(fields: [registerId], references: [id], onDelete: Restrict)
-  shift              CashierShift? @relation(fields: [shiftId], references: [id], onDelete: Restrict)
-  customer           Customer?     @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  cashier            User          @relation("SaleCashier", fields: [cashierId], references: [id], onDelete: Restrict)
-  discountApprovedBy User?         @relation("SaleDiscountApprover", fields: [discountApprovedById], references: [id], onDelete: Restrict)
+  location           Location                    @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  register           Register?                   @relation(fields: [registerId], references: [id], onDelete: Restrict)
+  shift              CashierShift?               @relation(fields: [shiftId], references: [id], onDelete: Restrict)
+  customer           Customer?                   @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  cashier            User                        @relation("SaleCashier", fields: [cashierId], references: [id], onDelete: Restrict)
+  discountApprovedBy User?                       @relation("SaleDiscountApprover", fields: [discountApprovedById], references: [id], onDelete: Restrict)
   items              SaleItem[]
   payments           SalePayment[]
   onlineOrder        OnlineOrder?
+  returns            SaleReturn[]
+  allocations        CustomerReceiptAllocation[]
 
   @@index([status, completedAt])
   @@index([shiftId])
@@ -1371,9 +1394,10 @@ model SaleItem {
   costAmount     Decimal @default(0) @map("cost_amount") @db.Decimal(18, 2)
   qtyReturned    Decimal @default(0) @map("qty_returned") @db.Decimal(14, 3)
 
-  sale    Sale           @relation(fields: [saleId], references: [id], onDelete: Cascade)
-  variant ProductVariant @relation(fields: [variantId], references: [id], onDelete: Restrict)
-  tax     TaxRate?       @relation(fields: [taxRateId], references: [id], onDelete: Restrict)
+  sale    Sale             @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  variant ProductVariant   @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  tax     TaxRate?         @relation(fields: [taxRateId], references: [id], onDelete: Restrict)
+  returns SaleReturnItem[]
 
   @@unique([saleId, lineNo])
   @@index([variantId])
@@ -1472,6 +1496,7 @@ enum OnlineOrderStatus {
   DELIVERED
   CANCELLED
   ON_HOLD
+  REFUNDED
 }
 
 enum ReservationStatus {
@@ -1494,44 +1519,46 @@ enum PaymentAttemptStatus {
 /// An online order. Its items hold a stock reservation at the fulfilment location while unpaid;
 /// payment turns the order into a sale (channel ONLINE) in one transaction.
 model OnlineOrder {
-  id                String            @id @default(uuid()) @db.Uuid
-  number            String            @unique
-  customerId        String            @map("customer_id") @db.Uuid
-  status            OnlineOrderStatus @default(PENDING_PAYMENT)
-  locationId        String            @map("location_id") @db.Uuid
-  pricesIncludeTax  Boolean           @map("prices_include_tax")
-  email             String
-  shippingMethodId  String            @map("shipping_method_id") @db.Uuid
-  shippingName      String            @map("shipping_name")
-  isPickup          Boolean           @map("is_pickup")
+  id                     String            @id @default(uuid()) @db.Uuid
+  number                 String            @unique
+  customerId             String            @map("customer_id") @db.Uuid
+  status                 OnlineOrderStatus @default(PENDING_PAYMENT)
+  locationId             String            @map("location_id") @db.Uuid
+  pricesIncludeTax       Boolean           @map("prices_include_tax")
+  email                  String
+  shippingMethodId       String            @map("shipping_method_id") @db.Uuid
+  shippingName           String            @map("shipping_name")
+  isPickup               Boolean           @map("is_pickup")
   /// Delivery as charged (pricing mode), and split into net and VAT.
-  shippingFee       Decimal           @map("shipping_fee") @db.Decimal(18, 2)
-  shippingNet       Decimal           @map("shipping_net") @db.Decimal(18, 2)
-  shippingTax       Decimal           @map("shipping_tax") @db.Decimal(18, 2)
+  shippingFee            Decimal           @map("shipping_fee") @db.Decimal(18, 2)
+  shippingNet            Decimal           @map("shipping_net") @db.Decimal(18, 2)
+  shippingTax            Decimal           @map("shipping_tax") @db.Decimal(18, 2)
   /// Sum of item line totals as charged.
-  itemsTotal        Decimal           @map("items_total") @db.Decimal(18, 2)
+  itemsTotal             Decimal           @map("items_total") @db.Decimal(18, 2)
   /// Net of VAT, items and delivery.
-  subtotal          Decimal           @db.Decimal(18, 2)
-  taxTotal          Decimal           @map("tax_total") @db.Decimal(18, 2)
-  total             Decimal           @db.Decimal(18, 2)
-  recipient         String?
-  phone             String?
-  line1             String?
-  line2             String?
-  city              String?
-  state             String?
-  note              String?
-  provider          PaymentProvider?
-  reservationStatus ReservationStatus @default(ACTIVE) @map("reservation_status")
-  reservedUntil     DateTime?         @map("reserved_until") @db.Timestamptz(3)
-  trackingReference String?           @map("tracking_reference")
-  saleId            String?           @unique @map("sale_id") @db.Uuid
+  subtotal               Decimal           @db.Decimal(18, 2)
+  taxTotal               Decimal           @map("tax_total") @db.Decimal(18, 2)
+  total                  Decimal           @db.Decimal(18, 2)
+  recipient              String?
+  phone                  String?
+  line1                  String?
+  line2                  String?
+  city                   String?
+  state                  String?
+  note                   String?
+  provider               PaymentProvider?
+  reservationStatus      ReservationStatus @default(ACTIVE) @map("reservation_status")
+  reservedUntil          DateTime?         @map("reserved_until") @db.Timestamptz(3)
+  trackingReference      String?           @map("tracking_reference")
+  saleId                 String?           @unique @map("sale_id") @db.Uuid
   /// Payment held as a customer deposit while the order is on hold.
-  depositJournalId  String?           @map("deposit_journal_id") @db.Uuid
-  placedAt          DateTime          @default(now()) @map("placed_at") @db.Timestamptz(3)
-  paidAt            DateTime?         @map("paid_at") @db.Timestamptz(3)
-  cancelledAt       DateTime?         @map("cancelled_at") @db.Timestamptz(3)
-  updatedAt         DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+  depositJournalId       String?           @map("deposit_journal_id") @db.Uuid
+  /// The deposit paid back (order on hold or paid after cancellation).
+  depositRefundJournalId String?           @map("deposit_refund_journal_id") @db.Uuid
+  placedAt               DateTime          @default(now()) @map("placed_at") @db.Timestamptz(3)
+  paidAt                 DateTime?         @map("paid_at") @db.Timestamptz(3)
+  cancelledAt            DateTime?         @map("cancelled_at") @db.Timestamptz(3)
+  updatedAt              DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   customer       Customer             @relation(fields: [customerId], references: [id], onDelete: Restrict)
   location       Location             @relation(fields: [locationId], references: [id], onDelete: Restrict)
@@ -1623,4 +1650,241 @@ model PaymentWebhookEvent {
 
   @@unique([provider, eventId])
   @@map("payment_webhook_events")
+}
+
+// ───────────────────────────── Returns and refunds ─────────────────────────────
+
+enum SaleReturnStatus {
+  PENDING_APPROVAL
+  APPROVED
+  COMPLETED
+  REJECTED
+}
+
+enum ItemCondition {
+  RESALEABLE
+  OPENED
+  DAMAGED
+  EXPIRED
+}
+
+/// A return against a completed sale (POS or online). Requested → approved → completed (refund paid, stock and ledger updated).
+model SaleReturn {
+  id                String           @id @default(uuid()) @db.Uuid
+  number            String           @unique
+  saleId            String           @map("sale_id") @db.Uuid
+  status            SaleReturnStatus @default(PENDING_APPROVAL)
+  reason            String
+  rejectedReason    String?          @map("rejected_reason")
+  /// Amounts refunded, net of VAT and VAT, for items and (online) delivery.
+  netAmount         Decimal          @default(0) @map("net_amount") @db.Decimal(18, 2)
+  taxAmount         Decimal          @default(0) @map("tax_amount") @db.Decimal(18, 2)
+  shippingNet       Decimal          @default(0) @map("shipping_net") @db.Decimal(18, 2)
+  shippingTax       Decimal          @default(0) @map("shipping_tax") @db.Decimal(18, 2)
+  total             Decimal          @default(0) @db.Decimal(18, 2)
+  /// Of the total: set against what the customer still owed on the sale, and paid back.
+  creditedToAccount Decimal          @default(0) @map("credited_to_account") @db.Decimal(18, 2)
+  paidOut           Decimal          @default(0) @map("paid_out") @db.Decimal(18, 2)
+  costRestocked     Decimal          @default(0) @map("cost_restocked") @db.Decimal(18, 2)
+  refundMethodId    String?          @map("refund_method_id") @db.Uuid
+  refundReference   String?          @map("refund_reference")
+  /// Cash paid from a till: the open shift of the person refunding, so its expected cash is reduced.
+  shiftId           String?          @map("shift_id") @db.Uuid
+  journalEntryId    String?          @map("journal_entry_id") @db.Uuid
+  requestedById     String           @map("requested_by_id") @db.Uuid
+  requestedAt       DateTime         @default(now()) @map("requested_at") @db.Timestamptz(3)
+  approvedById      String?          @map("approved_by_id") @db.Uuid
+  approvedAt        DateTime?        @map("approved_at") @db.Timestamptz(3)
+  completedById     String?          @map("completed_by_id") @db.Uuid
+  completedAt       DateTime?        @map("completed_at") @db.Timestamptz(3)
+  updatedAt         DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  sale         Sale             @relation(fields: [saleId], references: [id], onDelete: Restrict)
+  refundMethod PaymentMethod?   @relation(fields: [refundMethodId], references: [id], onDelete: Restrict)
+  shift        CashierShift?    @relation(fields: [shiftId], references: [id], onDelete: Restrict)
+  requestedBy  User             @relation("ReturnRequestedBy", fields: [requestedById], references: [id], onDelete: Restrict)
+  approvedBy   User?            @relation("ReturnApprovedBy", fields: [approvedById], references: [id], onDelete: Restrict)
+  completedBy  User?            @relation("ReturnCompletedBy", fields: [completedById], references: [id], onDelete: Restrict)
+  items        SaleReturnItem[]
+
+  @@index([saleId])
+  @@index([status, requestedAt])
+  @@index([shiftId])
+  @@map("sale_returns")
+}
+
+model SaleReturnItem {
+  id         String        @id @default(uuid()) @db.Uuid
+  returnId   String        @map("return_id") @db.Uuid
+  saleItemId String        @map("sale_item_id") @db.Uuid
+  qty        Decimal       @db.Decimal(14, 3)
+  condition  ItemCondition
+  restock    Boolean
+  netAmount  Decimal       @map("net_amount") @db.Decimal(18, 2)
+  taxAmount  Decimal       @map("tax_amount") @db.Decimal(18, 2)
+  lineTotal  Decimal       @map("line_total") @db.Decimal(18, 2)
+  /// The original sale-line cost, which a restocked item goes back in at.
+  unitCost   Decimal       @map("unit_cost") @db.Decimal(18, 4)
+  costAmount Decimal       @map("cost_amount") @db.Decimal(18, 2)
+
+  saleReturn SaleReturn @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  saleItem   SaleItem   @relation(fields: [saleItemId], references: [id], onDelete: Restrict)
+
+  @@unique([returnId, saleItemId])
+  @@index([saleItemId])
+  @@map("sale_return_items")
+}
+
+// ───────────────────────────── Customer receipts ─────────────────────────────
+
+/// Money received from a customer against credit sales (Dr cash/bank, Cr AR). Immutable.
+model CustomerReceipt {
+  id              String   @id @default(uuid()) @db.Uuid
+  number          String   @unique
+  customerId      String   @map("customer_id") @db.Uuid
+  receiptDate     DateTime @map("receipt_date") @db.Date
+  paymentMethodId String   @map("payment_method_id") @db.Uuid
+  amount          Decimal  @db.Decimal(18, 2)
+  /// Not applied to any sale: a credit on the customer's account.
+  unallocated     Decimal  @db.Decimal(18, 2)
+  reference       String?
+  note            String?
+  journalEntryId  String   @map("journal_entry_id") @db.Uuid
+  createdById     String   @map("created_by_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  customer      Customer                    @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  paymentMethod PaymentMethod               @relation(fields: [paymentMethodId], references: [id], onDelete: Restrict)
+  createdBy     User                        @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  allocations   CustomerReceiptAllocation[]
+
+  @@index([customerId, receiptDate])
+  @@map("customer_receipts")
+}
+
+model CustomerReceiptAllocation {
+  id        String  @id @default(uuid()) @db.Uuid
+  receiptId String  @map("receipt_id") @db.Uuid
+  saleId    String  @map("sale_id") @db.Uuid
+  amount    Decimal @db.Decimal(18, 2)
+
+  receipt CustomerReceipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  sale    Sale            @relation(fields: [saleId], references: [id], onDelete: Restrict)
+
+  @@unique([receiptId, saleId])
+  @@index([saleId])
+  @@map("customer_receipt_allocations")
+}
+
+// ───────────────────────────── Expenses ─────────────────────────────
+
+model ExpenseCategory {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @unique
+  accountId String   @map("account_id") @db.Uuid
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  account  Account   @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  expenses Expense[]
+
+  @@map("expense_categories")
+}
+
+enum ExpenseStatus {
+  DRAFT
+  SUBMITTED
+  POSTED
+}
+
+/// A paid expense: draft → submitted → posted (Dr expense [+ VAT input], Cr cash/bank). Posted expenses are final.
+model Expense {
+  id               String        @id @default(uuid()) @db.Uuid
+  number           String        @unique
+  expenseDate      DateTime      @map("expense_date") @db.Date
+  categoryId       String        @map("category_id") @db.Uuid
+  accountId        String        @map("account_id") @db.Uuid
+  payee            String
+  description      String
+  netAmount        Decimal       @map("net_amount") @db.Decimal(18, 2)
+  taxRateId        String?       @map("tax_rate_id") @db.Uuid
+  taxAmount        Decimal       @default(0) @map("tax_amount") @db.Decimal(18, 2)
+  total            Decimal       @db.Decimal(18, 2)
+  paymentAccountId String        @map("payment_account_id") @db.Uuid
+  reference        String?
+  status           ExpenseStatus @default(DRAFT)
+  rejectedReason   String?       @map("rejected_reason")
+  createdById      String        @map("created_by_id") @db.Uuid
+  submittedAt      DateTime?     @map("submitted_at") @db.Timestamptz(3)
+  approvedById     String?       @map("approved_by_id") @db.Uuid
+  postedAt         DateTime?     @map("posted_at") @db.Timestamptz(3)
+  journalEntryId   String?       @map("journal_entry_id") @db.Uuid
+  createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  category       ExpenseCategory     @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  account        Account             @relation("ExpenseAccount", fields: [accountId], references: [id], onDelete: Restrict)
+  paymentAccount Account             @relation("ExpensePaymentAccount", fields: [paymentAccountId], references: [id], onDelete: Restrict)
+  taxRate        TaxRate?            @relation(fields: [taxRateId], references: [id], onDelete: Restrict)
+  createdBy      User                @relation("ExpenseCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  approvedBy     User?               @relation("ExpenseApprovedBy", fields: [approvedById], references: [id], onDelete: Restrict)
+  attachments    ExpenseAttachment[]
+
+  @@index([status, expenseDate])
+  @@map("expenses")
+}
+
+model ExpenseAttachment {
+  id        String @id @default(uuid()) @db.Uuid
+  expenseId String @map("expense_id") @db.Uuid
+  fileId    String @map("file_id") @db.Uuid
+
+  expense Expense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  file    File    @relation(fields: [fileId], references: [id], onDelete: Restrict)
+
+  @@unique([expenseId, fileId])
+  @@map("expense_attachments")
+}
+
+// ───────────────────────────── Bank and cash reconciliation ─────────────────────────────
+
+enum ReconciliationStatus {
+  IN_PROGRESS
+  COMPLETED
+}
+
+/// Matches a cash or bank account's posted lines to a statement. Completed reconciliations are final.
+model BankReconciliation {
+  id               String               @id @default(uuid()) @db.Uuid
+  accountId        String               @map("account_id") @db.Uuid
+  statementDate    DateTime             @map("statement_date") @db.Date
+  statementBalance Decimal              @map("statement_balance") @db.Decimal(18, 2)
+  /// The previous completed statement's balance (0 for the first).
+  openingBalance   Decimal              @map("opening_balance") @db.Decimal(18, 2)
+  status           ReconciliationStatus @default(IN_PROGRESS)
+  createdById      String               @map("created_by_id") @db.Uuid
+  createdAt        DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  completedById    String?              @map("completed_by_id") @db.Uuid
+  completedAt      DateTime?            @map("completed_at") @db.Timestamptz(3)
+
+  account     Account                  @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  createdBy   User                     @relation("ReconStartedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  completedBy User?                    @relation("ReconCompletedBy", fields: [completedById], references: [id], onDelete: Restrict)
+  lines       BankReconciliationLine[]
+
+  @@index([accountId, statementDate])
+  @@map("bank_reconciliations")
+}
+
+/// A journal line ticked as cleared. A line can be cleared once, ever (UNIQUE).
+model BankReconciliationLine {
+  id               String @id @default(uuid()) @db.Uuid
+  reconciliationId String @map("reconciliation_id") @db.Uuid
+  journalLineId    String @unique @map("journal_line_id") @db.Uuid
+
+  reconciliation BankReconciliation @relation(fields: [reconciliationId], references: [id], onDelete: Cascade)
+  journalLine    JournalLine        @relation(fields: [journalLineId], references: [id], onDelete: Restrict)
+
+  @@map("bank_reconciliation_lines")
 }

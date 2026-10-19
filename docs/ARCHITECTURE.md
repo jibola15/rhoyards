@@ -84,6 +84,13 @@ Every call writes `stock_movements` rows (the append-only stock ledger). Documen
 - The inventory engine gained `reserve()` / `release()`; every `issue()` already respects reserved quantities, so the POS and the website sell from one pool. Concurrent checkouts serialise on the variant row lock.
 - `src/lib/system-user.ts` — the disabled system user that authors webhook-driven postings.
 
+## After-sales and money
+
+- `src/modules/returns/` — returnable quantities, request/approve/reject, and `completeReturn` (refund, restock via the inventory engine at the original cost into the original lots, ledger) in one transaction; `POST /returns/:id/refund` requires an `Idempotency-Key`. `createReturnTx`/`completeReturnTx` let `refundPaidOrder` (orders module) cancel a paid online order atomically.
+- `src/modules/customers/receivables.service.ts` — customer balances, receipts (allocations settle `sales.amount_settled` under row locks), statements.
+- `src/modules/expenses/` — categories and the draft → submitted → posted workflow; `POST /files/documents` stores private receipts.
+- `src/modules/banking/` — reconciliations (lines on offer = posted lines of the account up to the statement date not cleared elsewhere) and card settlements.
+
 ## Files
 
 `POST /files/images` (multer, memory, size-limited) → magic-byte check with `file-type` (JPEG/PNG/WebP only) → `sharp` re-encode to WebP, max 1600 px, metadata stripped → stored under a server-generated key via the `FileStorage` interface (`LocalDiskStorage`; S3-compatible driver later). `GET /files/:id` serves public files (product images) without a session, private files only to signed-in staff, with `nosniff` and explicit content type.
@@ -119,6 +126,7 @@ Module layout: `src/modules/<name>/<name>.routes.ts` (+ controller, service, sch
 - Phase 5 screens: Point of sale (register and shift, scan or search, cart with line discounts and price override, customer, suspend/resume, payment dialog with split tender and change, supervisor-approval prompt, printable receipt via print CSS), Sales list and detail with reprint, Shifts (open; close with cash count and variance), Customers (credit limit, balance), Settings → POS (discount limit, registers, payment methods).
 - Phase 6 screens: Chart of accounts (grouped by type, balances, add/edit/deactivate), Journals (all sources, filters) and journal page (draft editor with live difference, post, delete, reverse, link to the source document), General ledger, Periods (close in order, reopen with reason, add next year, year-end close), Opening balances wizard, and Reports: Profit and loss, Balance sheet, Cash flow, Trial balance, Aged receivables (printable).
 - Phase 7 screens: Online orders (filters) and order page (confirm bank transfer, fulfilment steps, tracking reference, cancel, complete from deposit, payments and history), Settings → Online store and Delivery options.
+- Phase 8 screens: Returns (list, new return from a sale or delivered order, approve/reject, refund dialog with idempotency key), customer account page (statement, record payment oldest-first), Expenses (list, form with VAT preview and receipt upload, submit/approve/send back), Bank reconciliation (start, card settlement, tick-list with live difference), order page refund and deposit-refund actions, Settings → Expense categories.
 - Storefront (`apps/storefront`): home, shop (search, category, brand, price, in-stock, sort, pagination), product page (variants, stock level), cart (server quote), sign in / register, checkout (address book, delivery options by state, payment choice), my orders and order page (payment instructions, pay again, cancel, progress), and the test gateway page. The cart is kept in `localStorage`; the customer CSRF token in memory.
 - `VariantPicker` is an accessible combobox: type to search, or scan — Enter on an exact barcode/SKU selects it.
 - Routes are code-split (`React.lazy`); libraries are in long-lived vendor chunks.

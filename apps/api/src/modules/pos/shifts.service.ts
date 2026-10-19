@@ -30,8 +30,11 @@ async function takings(db: Db, shiftId: string) {
     JOIN sales s ON s.id = sp.sale_id AND s.shift_id = ${shiftId}::uuid AND s.status = 'COMPLETED'
     JOIN payment_methods pm ON pm.id = sp.payment_method_id
     GROUP BY pm.id, pm.name, pm.kind, pm.sort_order ORDER BY pm.sort_order`;
-  const cash = sum(byMethod.filter((m) => m.kind === 'CASH').map((m) => m.amount));
-  return { totals: totals!, byMethod, cash };
+  // Cash refunded from this till (returns completed by the shift's cashier) comes out of the drawer.
+  const refunds = await db.saleReturn.aggregate({ where: { shiftId, status: 'COMPLETED' }, _sum: { paidOut: true } });
+  const cashRefunds = dec(refunds._sum.paidOut?.toString() ?? 0);
+  const cash = sum(byMethod.filter((m) => m.kind === 'CASH').map((m) => m.amount)).minus(cashRefunds);
+  return { totals: totals!, byMethod, cash, cashRefunds };
 }
 
 async function toSummary(db: Db, s: Row): Promise<ShiftSummary> {

@@ -2,6 +2,7 @@ import request from 'supertest';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { runScheduledJob } from '../../src/lib/jobs';
 import { runMaintenance } from '../../src/lib/maintenance';
+import { DatabaseStorage } from '../../src/lib/storage';
 import { getPrisma } from '../../src/lib/prisma';
 import { INVALID_RESET_LINK } from '../../src/modules/auth/password-reset.service';
 import { createStaff, resetDatabase, TEST_PASSWORD } from '../helpers/db';
@@ -163,5 +164,30 @@ describe('several API instances', () => {
     expect(result.passwordResetTokens).toBeGreaterThanOrEqual(1);
     expect(result.rateLimits).toBeGreaterThanOrEqual(1);
     expect(await prisma().loginChallenge.findUnique({ where: { tokenHash: 'old-challenge' } })).toBeNull();
+  });
+});
+
+describe('serverless hosting', () => {
+  it('runs due background jobs from the cron endpoint, only with the secret', async () => {
+    const secret = 'a-cron-secret-of-some-length';
+    const withCron = buildTestApp({ CRON_SECRET: secret });
+    expect((await request(withCron).get('/api/v1/internal/cron')).status).toBe(403);
+    expect((await request(withCron).get('/api/v1/internal/cron').set('Authorization', 'Bearer wrong-secret-of-same-len')).status).toBe(403);
+    const ok = await request(withCron).get('/api/v1/internal/cron').set('Authorization', `Bearer ${secret}`);
+    expect(ok.status).toBe(200);
+    expect(Object.keys(ok.body.data).sort()).toEqual(['maintenance', 'release-expired-reservations']);
+    // Without a secret configured the endpoint does not exist.
+    expect((await request(app).get('/api/v1/internal/cron')).status).toBe(404);
+  });
+
+  it('keeps uploaded file bytes in the database, written once', async () => {
+    const storage = new DatabaseStorage();
+    const key = `${crypto.randomUUID()}.webp`;
+    await storage.put(key, Buffer.from('image-bytes'));
+    expect((await storage.read(key)).toString()).toBe('image-bytes');
+    await expect(storage.put(key, Buffer.from('other'))).rejects.toThrow();
+    await expect(storage.read(`${crypto.randomUUID()}.webp`)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(storage.put('../etc/passwd', Buffer.from('x'))).rejects.toThrow(/Invalid storage key/);
+    await expect(prisma().fileContent.update({ where: { key }, data: { data: new Uint8Array([1]) } })).rejects.toThrow(/cannot be changed/);
   });
 });

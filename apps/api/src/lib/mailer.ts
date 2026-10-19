@@ -76,6 +76,17 @@ export class MemoryMailer implements Mailer {
   }
 }
 
+/** MAIL_DISABLED: nothing is sent. Logs that an email was dropped, never its body (it may hold a reset link). */
+export class DisabledMailer implements Mailer {
+  constructor(private readonly logger?: Logger) {}
+
+  send(message: MailMessage): Promise<void> {
+    this.logger?.warn({ subject: message.subject }, 'Email not sent: MAIL_DISABLED is set');
+    return Promise.resolve();
+  }
+}
+
 export function createMailer(env: Env, logger?: Logger): Mailer {
+  if (env.MAIL_DISABLED) return new DisabledMailer(logger);
   return env.SMTP_HOST ? new SmtpMailer(env, env.MAIL_FROM) : new OutboxMailer(env.MAIL_OUTBOX_DIR, env.MAIL_FROM, logger);
 }

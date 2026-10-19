@@ -49,6 +49,12 @@ const envSchema = z.object({
   TWO_FACTOR_KEY: z.string().optional(),
   /** Where rate-limit counters live: `database` (shared by every API instance) or `memory` (this process only). */
   RATE_LIMIT_STORE: z.enum(['database', 'memory']).optional(),
+  /** Where uploaded file bytes live: `local` (UPLOAD_DIR on disk) or `database` (hosts without a lasting disk). */
+  STORAGE_DRIVER: z.enum(['local', 'database']).default('local'),
+  /** Explicitly run without email (a trial deployment): password-reset emails are not sent. */
+  MAIL_DISABLED: booleanString.default(false),
+  /** Shared secret Vercel Cron (or any scheduler) sends as `Authorization: Bearer …` to run background jobs. */
+  CRON_SECRET: z.string().min(16).optional(),
 });
 
 type Derived = 'API_DOCS_ENABLED' | 'PAYMENT_TEST_ENABLED' | 'PAYMENT_TEST_SECRET' | 'SMTP_SECURE' | 'TWO_FACTOR_KEY' | 'RATE_LIMIT_STORE';
@@ -95,8 +101,10 @@ export function loadEnv(source: Record<string, string | undefined> = process.env
 
   if (production) {
     // Password-reset emails must really be sent, and their links must be https.
-    if (!env.SMTP_HOST) fail('SMTP_HOST is required in production (password-reset emails)');
-    if (/@localhost>?$/.test(env.MAIL_FROM)) fail('MAIL_FROM must be a real sender address in production');
+    if (!env.MAIL_DISABLED) {
+      if (!env.SMTP_HOST) fail('SMTP_HOST is required in production (password-reset emails), or set MAIL_DISABLED=true for a trial');
+      if (/@localhost>?$/.test(env.MAIL_FROM)) fail('MAIL_FROM must be a real sender address in production');
+    }
     for (const key of ['BACKOFFICE_URL', 'STOREFRONT_URL'] as const) {
       if (!env[key].startsWith('https://')) fail(`${key} must be an https:// address in production`);
     }

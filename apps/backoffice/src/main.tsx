@@ -9,7 +9,8 @@ import { routes } from './routes';
 import './index.css';
 
 const queryClient = createQueryClient();
-const router = createBrowserRouter(routes);
+// Matches Vite's `base` (e.g. /admin/ on Vercel, / elsewhere).
+const router = createBrowserRouter(routes, { basename: import.meta.env.BASE_URL.replace(/\/$/, '') || '/' });
 
 const root = document.getElementById('root');
 if (!root) throw new Error('Root element #root not found');

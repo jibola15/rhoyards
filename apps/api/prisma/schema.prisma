@@ -357,6 +357,15 @@ model ScheduledJob {
   @@map("scheduled_jobs")
 }
 
+/// File bytes when STORAGE_DRIVER=database (serverless hosting); `files.storage_key` points here.
+model FileContent {
+  key       String   @id
+  data      Bytes
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@map("file_contents")
+}
+
 model IdempotencyKey {
   id          String   @id @default(uuid()) @db.Uuid
   scope       String

@@ -139,6 +139,16 @@ shop.example.com {
 
 Caddy sets `X-Forwarded-For`, so `TRUST_PROXY=1`. The API adds its own strict headers to API responses (`default-src 'none'`, `frame-ancestors 'none'`, HSTS, `nosniff`). Optionally block `/api/v1/store/*` on the admin host and everything but `/api/v1/store/*`, `/api/v1/files/*` and `/api/v1/webhooks/*` on the shop host.
 
+## 6b. Vercel (alternative to a server)
+
+The repository also deploys as **one Vercel project** (`vercel.json`): the shop at `/`, the back office at `/admin`, and the whole API as one Vercel function (`api/index.mjs` → `apps/api/src/vercel.ts`). `scripts/vercel-build.mjs` builds all three. Differences from the server setup:
+
+- **No timers.** Background jobs start from incoming requests (at most once a minute per function instance, finishing after the response) and from a daily Vercel Cron call to `/api/v1/internal/cron` (needs `CRON_SECRET`; Vercel sends it automatically). Jobs still run once per interval however many instances exist.
+- **No lasting disk.** Set `STORAGE_DRIVER=database` (file bytes in `file_contents`) and `MAX_UPLOAD_MB=4` (Vercel's request limit is 4.5 MB).
+- **Migrations are not run by the build.** Run `npm run db:migrate -w @rhoyards/api` against the database before deploying a new version.
+- Environment variables (Settings → Environment Variables): `DATABASE_URL`, `DIRECT_URL`, `TWO_FACTOR_KEY`, `CRON_SECRET`, `STORAGE_DRIVER=database`, `MAX_UPLOAD_MB=4`, `TRUST_PROXY=1`, `CORS_ORIGINS`, `BACKOFFICE_URL` (`https://<host>/admin`), `STOREFRONT_URL`, and SMTP settings — or `MAIL_DISABLED=true` for a trial without email (password-reset emails are then not sent). Redeploy after changing them.
+- Vercel's Deployment Protection (Vercel Authentication) also applies to the shop; turn it off for the production domain when the shop should be public.
+
 ## 7. Payments
 
 - Bank transfer works out of the box: put the account details in Settings → Online store.

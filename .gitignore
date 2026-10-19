@@ -22,3 +22,5 @@ Thumbs.db
 # Playwright output
 test-results/
 playwright-report/
+.vercel
+/vercel-dist/

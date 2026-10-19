@@ -22,6 +22,7 @@
     "@asteasolutions/zod-to-openapi": "^8.5.0",
     "@prisma/client": "~6.19.3",
     "@rhoyards/shared": "*",
+    "@vercel/functions": "3.9.11",
     "argon2": "^0.44.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",

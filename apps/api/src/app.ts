@@ -10,7 +10,8 @@ import type { Env } from './config/env';
 import { setBusinessTimeZone } from './lib/business-date';
 import { createLogger } from './lib/logger';
 import { createMailer, type Mailer } from './lib/mailer';
-import { LocalDiskStorage, type FileStorage } from './lib/storage';
+import { cronRouter } from './jobs';
+import { DatabaseStorage, LocalDiskStorage, type FileStorage } from './lib/storage';
 import { accountingRouter } from './modules/accounting/accounting.routes';
 import { ordersRouter } from './modules/orders/orders.routes';
 import { bankingRouter } from './modules/banking/banking.routes';
@@ -61,7 +62,7 @@ export function authConfig(env: Env): AuthConfig {
 export function createApp(
   env: Env,
   logger: Logger = createLogger(env),
-  storage: FileStorage = new LocalDiskStorage(env.UPLOAD_DIR),
+  storage: FileStorage = env.STORAGE_DRIVER === 'database' ? new DatabaseStorage() : new LocalDiskStorage(env.UPLOAD_DIR),
   mailer: Mailer = createMailer(env, logger),
 ) {
   const app = express();
@@ -114,6 +115,7 @@ export function createApp(
 
   // Unauthenticated system endpoints.
   app.use('/api/v1', healthRouter);
+  if (env.CRON_SECRET) app.use('/api/v1', cronRouter(env.CRON_SECRET, logger));
   // Payment providers call these server-to-server; they authenticate by signature, not session.
   app.use('/api/v1', webhooksRouter(env));
   // The public storefront has its own customer sessions and CSRF, so it is mounted before the staff middleware.

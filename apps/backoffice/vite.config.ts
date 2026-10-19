@@ -3,6 +3,8 @@ import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
+  // Served under /admin when the shop and back office share one host (Vercel); at / otherwise.
+  base: process.env.BACKOFFICE_BASE ?? '/',
   plugins: [react(), tailwindcss()],
   build: {
     rollupOptions: {

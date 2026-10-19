@@ -1,7 +1,8 @@
 import { defineConfig } from 'tsup';
 
 export default defineConfig({
-  entry: ['src/server.ts'],
+  // server.ts: a long-running process; vercel.ts: the same app as a Vercel function.
+  entry: ['src/server.ts', 'src/vercel.ts'],
   format: ['esm'],
   target: 'node22',
   platform: 'node',

@@ -17,7 +17,7 @@ const noFloatMoney = {
 };
 
 export default tseslint.config(
-  { ignores: ['**/dist/**', '**/coverage/**', '**/node_modules/**', '**/generated/**'] },
+  { ignores: ['**/dist/**', '**/coverage/**', '**/node_modules/**', '**/generated/**', 'vercel-dist/**', '.vercel/**'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
@@ -30,6 +30,10 @@ export default tseslint.config(
     files: ['apps/api/**/*.ts', 'packages/shared/**/*.ts'],
     languageOptions: { globals: globals.node },
     rules: noFloatMoney,
+  },
+  {
+    files: ['scripts/**/*.mjs', 'api/**/*.mjs'],
+    languageOptions: { globals: globals.node },
   },
   {
     files: ['apps/backoffice/**/*.{ts,tsx}', 'apps/storefront/**/*.{ts,tsx}', 'packages/ui/**/*.{ts,tsx}'],

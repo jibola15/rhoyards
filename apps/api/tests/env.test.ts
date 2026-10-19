@@ -57,5 +57,8 @@ describe('environment configuration', () => {
     expect(() => loadEnv({ ...prod, MAIL_FROM: undefined })).toThrow(/MAIL_FROM/);
     expect(() => loadEnv({ ...prod, BACKOFFICE_URL: 'http://office.rhoyards.example' })).toThrow(/https/);
     expect(loadEnv({ ...prod, SMTP_PORT: '465' }).SMTP_SECURE).toBe(true);
+    // A trial deployment may run without email, but only when asked to explicitly.
+    expect(loadEnv({ ...prod, SMTP_HOST: undefined, MAIL_FROM: undefined, MAIL_DISABLED: 'true' }).MAIL_DISABLED).toBe(true);
+    expect(loadEnv({ ...prod, STORAGE_DRIVER: 'database' }).STORAGE_DRIVER).toBe('database');
   });
 });

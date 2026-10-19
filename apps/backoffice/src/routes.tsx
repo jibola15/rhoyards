@@ -3,6 +3,7 @@ import type { RouteObject } from 'react-router';
 import type { Permission } from '@rhoyards/shared';
 import { AppLayout } from './app/layout/AppLayout';
 import { RequireAuth, RequirePermission } from './auth/guards';
+import { Home } from './features/dashboard/Home';
 import { SystemStatusPage } from './features/system/SystemStatusPage';
 import { ChangePasswordPage } from './pages/ChangePasswordPage';
 import { LoginPage } from './pages/LoginPage';
@@ -61,6 +62,12 @@ const ExpensePage = page(expensePages, 'ExpensePage');
 const bankingPages = () => import('./features/banking/BankingPages');
 const ReconciliationsPage = page(bankingPages, 'ReconciliationsPage');
 const ReconciliationPage = page(bankingPages, 'ReconciliationPage');
+const operational = () => import('./features/reports/OperationalReports');
+const SalesReportPage = page(operational, 'SalesReportPage');
+const PaymentsReportPage = page(operational, 'PaymentsReportPage');
+const ExpensesReportPage = page(operational, 'ExpensesReportPage');
+const StockReportPage = page(operational, 'StockReportPage');
+const AuditLogPage = page(() => import('./features/audit/AuditLogPage'), 'AuditLogPage');
 const RETURN_VIEWERS: Permission[] = ['returns.create', 'returns.approve', 'refunds.process', 'sales.view'];
 const EXPENSE_USERS: Permission[] = ['expenses.view', 'expenses.create', 'expenses.approve'];
 const OrdersPage = page(orderPages, 'OrdersPage');
@@ -101,7 +108,8 @@ export const routes: RouteObject[] = [
       {
         element: <AppLayout />,
         children: [
-          { index: true, element: <SystemStatusPage /> },
+          { index: true, element: <Home /> },
+          { path: 'system', element: <SystemStatusPage /> },
           guarded('catalog/products', 'catalog.view', <ProductsPage />),
           guarded('catalog/products/new', 'catalog.manage', <ProductEditorPage />),
           guarded('catalog/products/:id', 'catalog.view', <ProductEditorPage />),
@@ -153,6 +161,11 @@ export const routes: RouteObject[] = [
           guarded('reports/balance-sheet', statements, <BalanceSheetPage />),
           guarded('reports/cash-flow', statements, <CashFlowPage />),
           guarded('reports/receivables', statements, <ReceivablesAgingPage />),
+          guarded('reports/sales', 'reports.sales', <SalesReportPage />),
+          guarded('reports/payments', ['reports.sales', 'reports.financial'], <PaymentsReportPage />),
+          guarded('reports/expenses', ['reports.financial', 'expenses.view'], <ExpensesReportPage />),
+          guarded('reports/stock', ['reports.inventory', 'inventory.view'], <StockReportPage />),
+          guarded('audit', 'audit.view', <AuditLogPage />),
           guarded('inventory/stock', 'inventory.view', <StockPage />),
           guarded('inventory/movements', 'inventory.view', <MovementsPage />),
           guarded('inventory/expiry', 'inventory.view', <ExpiryPage />),

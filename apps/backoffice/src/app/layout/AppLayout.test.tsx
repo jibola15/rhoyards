@@ -9,7 +9,7 @@ const health = () => json(200, { data: { status: 'ok', service: 'rhoyards-api', 
 describe('AppLayout', () => {
   it('renders navigation, top bar with the signed-in user, and the main landmark', async () => {
     mockApi({ 'GET /auth/me': () => json(200, { data: sessionFor([...ALL_PERMISSIONS]) }), 'GET /health': health });
-    renderApp('/');
+    renderApp('/system');
     expect(await screen.findByRole('navigation', { name: 'Main navigation' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'System status' })).toHaveAttribute('aria-current', 'page');
     expect(screen.getByText('Test Owner')).toBeInTheDocument();

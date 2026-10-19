@@ -7,6 +7,9 @@ export function setBusinessTimeZone(tz: string): void {
   timeZone = tz;
 }
 
+/** The configured business time zone (for SQL that buckets instants into business days). */
+export const businessTimeZone = () => timeZone;
+
 /** The instant a business day (YYYY-MM-DD) starts, e.g. 2026-10-21 → 2026-10-20T23:00:00Z for Lagos (UTC+1). */
 export function startOfBusinessDay(isoDate: string): Date {
   const utcMidnight = new Date(`${isoDate}T00:00:00Z`);

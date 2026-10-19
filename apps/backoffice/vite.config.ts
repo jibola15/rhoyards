@@ -13,6 +13,7 @@ export default defineConfig({
           data: ['@tanstack/react-query'],
           forms: ['react-hook-form', '@hookform/resolvers', 'zod'],
           ui: ['@radix-ui/react-dialog', 'sonner', 'lucide-react'],
+          charts: ['recharts'],
         },
       },
     },

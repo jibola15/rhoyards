@@ -15,6 +15,7 @@ import { ordersRouter } from './modules/orders/orders.routes';
 import { bankingRouter } from './modules/banking/banking.routes';
 import { expensesRouter } from './modules/expenses/expenses.routes';
 import { returnsRouter } from './modules/returns/returns.routes';
+import { reportingRouter } from './modules/reporting/reporting.routes';
 import { webhooksRouter } from './modules/payments/webhooks';
 import { storeRouter } from './modules/store/store.routes';
 import { catalogRouter } from './modules/catalog/catalog.routes';
@@ -118,6 +119,7 @@ export function createApp(
   app.use('/api/v1', returnsRouter);
   app.use('/api/v1', expensesRouter);
   app.use('/api/v1', bankingRouter);
+  app.use('/api/v1', reportingRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler(logger));

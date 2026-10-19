@@ -18,6 +18,9 @@
   --secondary-foreground: oklch(0.28 0.03 350);
   --muted: oklch(0.96 0.006 350);
   --muted-foreground: oklch(0.5 0.02 350);
+  /* Data-viz series 1 (validated: lightness band, chroma, >= 3:1 on the card surface). */
+  --chart-1: #2a78d6;
+  --chart-grid: oklch(0.92 0.005 350);
   --accent: oklch(0.95 0.02 350);
   --accent-foreground: oklch(0.28 0.03 350);
   --destructive: oklch(0.58 0.22 27);
@@ -48,6 +51,8 @@
   --secondary-foreground: oklch(0.96 0.005 350);
   --muted: oklch(0.27 0.015 350);
   --muted-foreground: oklch(0.7 0.015 350);
+  --chart-1: #3987e5;
+  --chart-grid: oklch(0.3 0.012 350);
   --accent: oklch(0.3 0.03 350);
   --accent-foreground: oklch(0.96 0.005 350);
   --destructive: oklch(0.65 0.2 25);
@@ -78,6 +83,8 @@
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
+  --color-chart-1: var(--chart-1);
+  --color-chart-grid: var(--chart-grid);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);

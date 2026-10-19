@@ -191,6 +191,8 @@ All statements use posted lines only. Accounts are placed by their classificatio
 | Aged receivables (as at) | unpaid credit-sale balances by age, per customer; total = AR ledger |
 | Aged payables (as at) | see §5a; total = AP ledger |
 
+**Dashboard (Phase 9).** Month-to-date net sales, gross and net profit are the P&L for the month to date; cash and bank is the balance sheet's cash section; customers owe = the AR account; we owe = AP; stock = the Inventory account. The 30-day chart is net sales (Σ credit − debit on revenue and returns/discount accounts) per journal date. Tested equal to the reports.
+
 **Controls (tested, acceptance #8 and #13):** every posted entry balances; the trial balance balances and each row equals the general-ledger closing balance; the balance sheet balances; P&L profit for the year = balance-sheet current earnings; cash flow reconciles to the cash accounts; aged receivables = AR, aged payables = AP; stock valuation = Inventory.
 
 ## 7. Chart of accounts

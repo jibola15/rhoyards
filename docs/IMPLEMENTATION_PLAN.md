@@ -54,6 +54,11 @@ Date: 2026-10-18
 | 2026-10-24 | Expenses are **paid** expenses only (Dr expense [+ VAT input] / Cr cash or bank), draft → submitted → posted, sent back to draft with a reason. Bills to pay later stay supplier invoices | AP stays equal to supplier balances |
 | 2026-10-24 | Expense receipts are private files (photos re-encoded, PDFs checked by content and served as downloads), readable only with an expenses permission | Receipts are not public and cannot run script on our origin |
 | 2026-10-24 | Bank reconciliation ticks posted lines of a cash/bank account against a statement; it completes only at a nil difference and its lines are cleared for good. Card settlement is a small posting (Dr Bank, Dr Bank charges / Cr clearing), reversible from the ledger | Bank balance provable at each statement date |
+| 2026-10-25 | Dashboard money figures are computed by the same functions as the statements (P&L for month to date, ledger balances for cash, AR, AP, inventory); the 30-day series is ledger net sales per entry date | Dashboard = reports, by construction; tested |
+| 2026-10-25 | "Live" dashboard = refreshed every 60 seconds while open (no push channel) | Simple; accurate within a minute |
+| 2026-10-25 | Operational sales report = item revenue net of VAT and discounts, less returns (by refund date), with cost; delivery charges excluded. It reconciles to the ledger's Sales revenue less Sales returns | One definition of "net sales" across screens |
+| 2026-10-25 | CSV export from the API (`?format=csv`), UTF-8 with BOM, formula-injection-safe (text starting =, +, -, @ is prefixed; numbers are left as numbers) | Opens cleanly in Excel; safe to open |
+| 2026-10-25 | Charts: Recharts, one validated series colour (palette slot 1, light/dark), hover tooltip and a table view; Recharts is loaded only with the dashboard | Accessible charts without weighing down other screens |
 
 ---
 
@@ -445,7 +450,7 @@ At the end of each phase I will: list the files changed, run migrations, typeche
 
 Integration tests run against a dedicated Neon `test` branch, which is reset per test file. A real PostgreSQL database is required: the locking, trigger and concurrency guarantees can't be tested on SQLite or with mocks.
 
-### Known issues and limitations (as of Phase 8)
+### Known issues and limitations (as of Phase 9)
 
 - **Customer and supplier opening balances** cannot be entered yet: their control accounts are closed to manual entries, and there is no "opening invoice" document. Start with zero balances, or enter the open supplier invoices as supplier invoices.
 - **Unapplied customer credit** (payment received with nothing to apply it to) cannot later be applied to a new credit sale; it stays as a credit that reduces the customer's balance.
@@ -456,6 +461,7 @@ Integration tests run against a dedicated Neon `test` branch, which is reset per
 - **No guest checkout** and **no customer emails** (order confirmation, payment received, dispatched) yet; customers follow their orders on the website.
 - **No real card gateway** yet; bank transfer (staff-verified) and the test gateway only. See [PAYMENTS.md](PAYMENTS.md).
 - Storefront stock badges use on-hand minus reserved and ignore expired lots; checkout's reservation does exclude expired lots, so a customer can at worst be told at checkout that an item is short.
+- The stock report's rate of sale is company-wide per variant (one store today); with several locations it would need a location filter.
 - Prettier is configured but the codebase is not formatted with it (`npm run format:check` fails across earlier phases too); ESLint is the enforced style check.
 
 ---

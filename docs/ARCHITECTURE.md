@@ -91,6 +91,10 @@ Every call writes `stock_movements` rows (the append-only stock ledger). Documen
 - `src/modules/expenses/` — categories and the draft → submitted → posted workflow; `POST /files/documents` stores private receipts.
 - `src/modules/banking/` — reconciliations (lines on offer = posted lines of the account up to the statement date not cleared elsewhere) and card settlements.
 
+## Dashboard and reporting
+
+`src/modules/reporting/`: `getDashboard()` (built on `profitAndLoss` and `totalsByAccount`, so it equals the statements), and the operational reports — sales by day/product/category/brand/cashier/channel/location (one SQL query over sale lines and completed return lines), payments by method, expenses by category, stock with rate of sale. Every report accepts `?format=csv` (`src/lib/csv.ts`). The audit trail is read through `GET /audit-logs`.
+
 ## Files
 
 `POST /files/images` (multer, memory, size-limited) → magic-byte check with `file-type` (JPEG/PNG/WebP only) → `sharp` re-encode to WebP, max 1600 px, metadata stripped → stored under a server-generated key via the `FileStorage` interface (`LocalDiskStorage`; S3-compatible driver later). `GET /files/:id` serves public files (product images) without a session, private files only to signed-in staff, with `nosniff` and explicit content type.
@@ -127,6 +131,7 @@ Module layout: `src/modules/<name>/<name>.routes.ts` (+ controller, service, sch
 - Phase 6 screens: Chart of accounts (grouped by type, balances, add/edit/deactivate), Journals (all sources, filters) and journal page (draft editor with live difference, post, delete, reverse, link to the source document), General ledger, Periods (close in order, reopen with reason, add next year, year-end close), Opening balances wizard, and Reports: Profit and loss, Balance sheet, Cash flow, Trial balance, Aged receivables (printable).
 - Phase 7 screens: Online orders (filters) and order page (confirm bank transfer, fulfilment steps, tracking reference, cancel, complete from deposit, payments and history), Settings → Online store and Delivery options.
 - Phase 8 screens: Returns (list, new return from a sale or delivered order, approve/reject, refund dialog with idempotency key), customer account page (statement, record payment oldest-first), Expenses (list, form with VAT preview and receipt upload, submit/approve/send back), Bank reconciliation (start, card settlement, tick-list with live difference), order page refund and deposit-refund actions, Settings → Expense categories.
+- Phase 9 screens: Dashboard at `/` for `dashboard.view` (stat tiles, 30-day net sales column chart with tooltip and table view, best sellers, balances, needs-attention queues filtered by permission; refreshed every minute; system status moves to `/system`), Sales report (group by), Payments by method, Expenses by category, Stock report (low/out/slow), each with CSV download; Audit log (filters, before/after detail).
 - Storefront (`apps/storefront`): home, shop (search, category, brand, price, in-stock, sort, pagination), product page (variants, stock level), cart (server quote), sign in / register, checkout (address book, delivery options by state, payment choice), my orders and order page (payment instructions, pay again, cancel, progress), and the test gateway page. The cart is kept in `localStorage`; the customer CSRF token in memory.
 - `VariantPicker` is an accessible combobox: type to search, or scan — Enter on an exact barcode/SKU selects it.
 - Routes are code-split (`React.lazy`); libraries are in long-lived vendor chunks.

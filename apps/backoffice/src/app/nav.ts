@@ -13,6 +13,12 @@ import {
   Wallet,
   Flag,
   Globe,
+  ChartColumn,
+  CreditCard,
+  LayoutDashboard,
+  PackageSearch,
+  PieChart,
+  ScrollText,
   ReceiptText,
   RotateCcw,
   ClipboardCheck,
@@ -55,6 +61,10 @@ export interface NavGroup {
 
 /** Only implemented routes appear here; each phase adds its module's entries. */
 export const navGroups: NavGroup[] = [
+  {
+    label: 'Overview',
+    items: [{ label: 'Dashboard', to: '/', icon: LayoutDashboard, permission: 'dashboard.view' }],
+  },
   {
     label: 'Sales',
     items: [
@@ -110,6 +120,10 @@ export const navGroups: NavGroup[] = [
   {
     label: 'Reports',
     items: [
+      { label: 'Sales report', to: '/reports/sales', icon: ChartColumn, permission: 'reports.sales' },
+      { label: 'Payments by method', to: '/reports/payments', icon: CreditCard, permission: ['reports.sales', 'reports.financial'] },
+      { label: 'Expenses by category', to: '/reports/expenses', icon: PieChart, permission: ['reports.financial', 'expenses.view'] },
+      { label: 'Stock report', to: '/reports/stock', icon: PackageSearch, permission: ['reports.inventory', 'inventory.view'] },
       { label: 'Profit and loss', to: '/reports/profit-and-loss', icon: TrendingUp, permission: STATEMENTS },
       { label: 'Balance sheet', to: '/reports/balance-sheet', icon: Landmark, permission: STATEMENTS },
       { label: 'Cash flow', to: '/reports/cash-flow', icon: Waves, permission: STATEMENTS },
@@ -127,7 +141,10 @@ export const navGroups: NavGroup[] = [
   },
   {
     label: 'System',
-    items: [{ label: 'System status', to: '/', icon: Activity }],
+    items: [
+      { label: 'Audit log', to: '/audit', icon: ScrollText, permission: 'audit.view' },
+      { label: 'System status', to: '/system', icon: Activity },
+    ],
   },
 ];
 

@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { ALL_PERMISSIONS } from '@rhoyards/shared';
@@ -25,6 +25,25 @@ describe('AppLayout', () => {
     await screen.findByRole('navigation', { name: 'Main navigation' });
     expect(screen.queryByRole('link', { name: 'Staff users' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Settings' })).not.toBeInTheDocument();
+  });
+
+  it('shows menu groups closed except the current one; a click pins a group open', async () => {
+    const user = userEvent.setup();
+    mockApi({ 'GET /auth/me': () => json(200, { data: sessionFor([...ALL_PERMISSIONS]) }), 'GET /health': health });
+    renderApp('/sales');
+    const nav = await screen.findByRole('navigation', { name: 'Main navigation' });
+    const sales = within(nav).getByRole('button', { name: 'Sales' });
+    const catalogue = within(nav).getByRole('button', { name: 'Catalogue' });
+    expect(sales).toHaveAttribute('aria-expanded', 'true'); // holds the current page
+    expect(catalogue).toHaveAttribute('aria-expanded', 'false');
+    // Closed groups are hidden with CSS and open while hovered or focused.
+    expect(document.getElementById(catalogue.getAttribute('aria-controls')!)).toHaveClass('hidden', 'group-hover/nav:block');
+
+    await user.click(catalogue);
+    expect(catalogue).toHaveAttribute('aria-expanded', 'true');
+    expect(document.getElementById(catalogue.getAttribute('aria-controls')!)).not.toHaveClass('hidden');
+    await user.click(catalogue);
+    expect(catalogue).toHaveAttribute('aria-expanded', 'false');
   });
 
   it('collapses the sidebar and remembers the preference', async () => {

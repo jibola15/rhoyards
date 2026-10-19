@@ -29,9 +29,19 @@ const envSchema = z.object({
   MAX_UPLOAD_MB: z.coerce.number().min(1).max(25).default(5),
   /** IANA time zone that defines the business day for accounting dates (e.g. a sale at 00:30). */
   BUSINESS_TIMEZONE: z.string().min(1).default('Africa/Lagos'),
+  /** Sandbox card gateway for the storefront (signed webhooks). On by default outside production; never in production. */
+  PAYMENT_TEST_ENABLED: booleanString.optional(),
+  /** HMAC secret the test gateway signs its webhooks with. */
+  PAYMENT_TEST_SECRET: z.string().min(16).optional(),
 });
 
-export type Env = Omit<z.infer<typeof envSchema>, 'API_DOCS_ENABLED'> & { API_DOCS_ENABLED: boolean };
+export type Env = Omit<z.infer<typeof envSchema>, 'API_DOCS_ENABLED' | 'PAYMENT_TEST_ENABLED' | 'PAYMENT_TEST_SECRET'> & {
+  API_DOCS_ENABLED: boolean;
+  PAYMENT_TEST_ENABLED: boolean;
+  PAYMENT_TEST_SECRET: string;
+};
+
+const DEV_TEST_GATEWAY_SECRET = 'dev-only-test-gateway-secret';
 
 export const APP_VERSION = '0.1.0';
 
@@ -45,9 +55,16 @@ export function loadEnv(source: Record<string, string | undefined> = process.env
   if (env.NODE_ENV !== 'test' && !env.DATABASE_URL) {
     throw new Error('Invalid environment configuration:\nDATABASE_URL is required');
   }
+  const testGateway = env.PAYMENT_TEST_ENABLED ?? env.NODE_ENV !== 'production';
+  if (testGateway && env.NODE_ENV === 'production') {
+    // A sandbox that marks orders paid must never be reachable on the live store.
+    throw new Error('Invalid environment configuration:\nPAYMENT_TEST_ENABLED cannot be true in production');
+  }
   return {
     ...env,
     // API docs default to on outside production.
     API_DOCS_ENABLED: env.API_DOCS_ENABLED ?? env.NODE_ENV !== 'production',
+    PAYMENT_TEST_ENABLED: testGateway,
+    PAYMENT_TEST_SECRET: env.PAYMENT_TEST_SECRET ?? DEV_TEST_GATEWAY_SECRET,
   };
 }

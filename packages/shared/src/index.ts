@@ -11,3 +11,4 @@ export * from './purchasing';
 export * from './pricing';
 export * from './pos';
 export * from './accounting';
+export * from './store';

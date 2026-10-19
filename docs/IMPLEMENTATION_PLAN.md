@@ -35,6 +35,15 @@ Date: 2026-10-18
 | 2026-10-22 | Cash flow uses the direct method over accounts classified CASH; each cash entry's other lines give the activity (non-current assets → investing; equity and non-current liabilities → financing; the rest operating). Opening-balance cash counts as opening cash | Exact by construction: opening + net change = closing, tested |
 | 2026-10-22 | New classifications NON_CURRENT_ASSET, NON_CURRENT_LIABILITY and OTHER_EXPENSE; the classification must belong to the account type | Statements group accounts by classification |
 | 2026-10-22 | Postings read their period `FOR SHARE` (app and trigger); closing locks it `FOR UPDATE` | A posting can never land in a period that is closing at the same moment |
+| 2026-10-23 | Customer sign-in in `customer_accounts`, sessions in the existing `sessions` table (realm CUSTOMER, own cookie `rh_cid` and CSRF token); the store API is mounted ahead of the staff middleware | The two realms never accept each other's cookies; tested |
+| 2026-10-23 | Checkout requires a customer account (no guest checkout in v1) | Every order has a customer for history, tracking and AR/refunds |
+| 2026-10-23 | The cart lives in the browser (variant + quantity); the server prices and checks it on every quote and at checkout. No `carts` tables | Nothing the client sends is trusted except ids and quantities |
+| 2026-10-23 | Reservations are the order's own lines (`online_orders.reservation_status` + `reserved_until`), held in `inventory_balances.qty_reserved`. No separate `stock_reservations` table | One record per hold; the engine's `reserve`/`release` keep the pool exact |
+| 2026-10-23 | When a hold runs out the stock is released but the order stays "awaiting payment"; a late payment completes it if stock is there, otherwise the order goes **On hold** with the money as a customer deposit (2200). Payment for a cancelled order is also held as a deposit | Money received is never lost or mis-posted; refunds of deposits come in Phase 8 |
+| 2026-10-23 | Order statuses: PENDING_PAYMENT, PAID, PROCESSING, PACKED, SHIPPED, DELIVERED, CANCELLED, ON_HOLD (no separate payment status; REFUNDED arrives with Phase 8). Store pickup goes PACKED → DELIVERED | One state machine, enforced in the service and guarded in the database |
+| 2026-10-23 | Delivery is a VAT-able line at the standard rate, charged in the store's pricing mode; its net goes to Shipping income (4100) and `sales.shipping_amount` | Revenue and delivery income stay separate in the P&L |
+| 2026-10-23 | A disabled, hidden **system user** authors postings with no person behind them (webhook-confirmed sales, reservation expiry) | Every journal and stock movement keeps a non-null author |
+| 2026-10-23 | Test card gateway (signed webhooks) for development and tests; it cannot be enabled in production. Real gateways plug into the same interface (docs/PAYMENTS.md) | End-to-end payment flow testable without a live gateway |
 
 ---
 
@@ -426,12 +435,16 @@ At the end of each phase I will: list the files changed, run migrations, typeche
 
 Integration tests run against a dedicated Neon `test` branch, which is reset per test file. A real PostgreSQL database is required: the locking, trigger and concurrency guarantees can't be tested on SQLite or with mocks.
 
-### Known issues and limitations (as of Phase 6)
+### Known issues and limitations (as of Phase 7)
 
 - **Customer and supplier opening balances** cannot be entered yet: their control accounts are closed to manual entries, and there is no "opening invoice" document. Planned with customer receipts (Phase 8); until then, start with zero balances or enter the open invoices as supplier invoices.
 - **Correcting a supplier payment** keyed against the wrong supplier or amount has no document yet (payments are final; their journals cannot be reversed from the ledger). Planned for Phase 8 alongside refunds.
 - **Aged receivables** ages each credit sale from its sale date (customers have no payment terms yet) and shows balances as they stand today; receipts against them arrive in Phase 8.
 - **Cash flow** lists every non-cash line of a cash entry, so a sale shows its cost of sales and the matching inventory reduction as two operating lines that cancel out.
+- **No guest checkout** and **no customer emails** (order confirmation, payment received, dispatched) yet; customers follow their orders on the website.
+- **Refunds** for orders on hold or paid after cancellation, and cancelling a paid order, come with returns and refunds in Phase 8. The `online_orders_payment_chk` guard will be extended then (a refunded order keeps its sale).
+- **No real card gateway** yet; bank transfer (staff-verified) and the test gateway only. See [PAYMENTS.md](PAYMENTS.md).
+- Storefront stock badges use on-hand minus reserved and ignore expired lots; checkout's reservation does exclude expired lots, so a customer can at worst be told at checkout that an item is short.
 - Prettier is configured but the codebase is not formatted with it (`npm run format:check` fails across earlier phases too); ESLint is the enforced style check.
 
 ---

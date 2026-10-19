@@ -11,6 +11,7 @@ import { writeAudit, type RequestContext } from '../../lib/audit';
 import { AppError, businessRule, conflict, forbidden, notFound } from '../../lib/errors';
 import { orderBy, pageArgs } from '../../lib/pagination';
 import { getPrisma, transaction, type Db } from '../../lib/prisma';
+import { SYSTEM_USER_EMAIL } from '../../lib/system-user';
 import type { AuthContext } from '../auth/auth.types';
 import { hashPassword } from '../auth/password';
 import { revokeUserSessions } from '../auth/session.service';
@@ -47,6 +48,7 @@ const isOwner = (auth: AuthContext) => auth.user.roles.some((r) => r.code === OW
 
 export async function listUsers(query: z.infer<typeof userListQuerySchema>) {
   const where: Prisma.UserWhereInput = {
+    email: { not: SYSTEM_USER_EMAIL },
     ...(query.q
       ? {
           OR: [
@@ -81,7 +83,8 @@ export async function listUsers(query: z.infer<typeof userListQuerySchema>) {
 }
 
 export async function getUser(id: string, db: Db = getPrisma()): Promise<UserSummary> {
-  const user = await db.user.findUnique({ where: { id }, select: summarySelect });
+  // The system user is not a person: it is never listed, edited, re-enabled or given a password.
+  const user = await db.user.findFirst({ where: { id, email: { not: SYSTEM_USER_EMAIL } }, select: summarySelect });
   if (!user) throw notFound('User');
   return toSummary(user);
 }

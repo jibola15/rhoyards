@@ -1,6 +1,7 @@
 import type { RoleCode } from '@rhoyards/shared';
 import { seedBase } from '../../prisma/seed/base';
 import { getPrisma } from '../../src/lib/prisma';
+import { forgetSystemUser } from '../../src/lib/system-user';
 import { hashPassword } from '../../src/modules/auth/password';
 
 /**
@@ -25,6 +26,7 @@ export async function resetDatabase(): Promise<void> {
     }
   });
   await seedBase(prisma);
+  forgetSystemUser();
 }
 
 let counter = 0;

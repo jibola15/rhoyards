@@ -59,6 +59,7 @@ Schema source: [`apps/api/prisma/schema.prisma`](../apps/api/prisma/schema.prism
 | 4 | Purchasing | `purchase_orders` + `_lines`, `goods_receipts` + `goods_receipt_lines` (with matching counters), `supplier_invoices` + `_lines`, `supplier_payments` + `supplier_payment_allocations`, `purchase_returns` + `_lines` |
 | 5 | Customers & POS | `customers` (credit limit), `payment_methods` (each → a ledger account), `registers`, `cashier_shifts`, `sales` (POS now; online in Phase 7), `sale_items` (price, discount, tax and cost per line), `sale_payments` |
 | 6 | Accounting | no new tables: `fiscal_years.closed_at` / `closed_by_id`; index on `journal_entries (status, entry_date)` for the statements |
+| 7 | Online store | `customer_accounts` (storefront sign-in), `customer_addresses`, `shipping_methods`, `online_orders` + `online_order_items` (reservation status and deadline on the order), `order_status_history`, `payment_attempts`, `payment_webhook_events`; `sessions.customer_account_id`; `sales.shipping_amount` |
 
 ### Inventory model
 
@@ -111,6 +112,16 @@ Defined in `prisma/migrations/20261018120100_phase2_integrity_guards/migration.s
 | `fiscal_years_guard_trg` | dates fixed; a closed fiscal year cannot be reopened |
 | `accounting_periods_guard_trg` | dates fixed; the status of a period in a closed fiscal year cannot change |
 | `accounts_guard_trg` | an account with postings keeps its type and stays postable; a system key is permanent; system accounts cannot be deleted |
+| `sessions_realm_owner_chk` | a CUSTOMER session belongs to a customer account (and no user); a STAFF session to no customer account |
+| `customer_accounts_email_lower_chk` | customer emails stored lower-case (unique) |
+| `online_orders_amounts_chk` | amounts ≥ 0; total = subtotal + VAT; delivery fee = net (+ VAT when prices include VAT) |
+| `online_orders_address_chk` | a delivery order has an address; pickup does not need one |
+| `online_orders_payment_chk` | paid statuses ⇔ a sale is linked; ON_HOLD has a deposit journal; stock is held only while awaiting payment |
+| `online_orders_guard_trg` | amounts fixed at checkout; CANCELLED and DELIVERED are final; the sale link is permanent; orders cannot be deleted |
+| `online_order_items_append_only_trg` / `order_status_history_append_only_trg` | order lines and history cannot be changed or deleted |
+| `payment_attempts` UNIQUE (`provider`, `reference`) + `_guard_trg` | one attempt per provider reference; a succeeded/failed attempt is final; amount and reference fixed |
+| `payment_webhook_events` UNIQUE (`provider`, `event_id`) + `_guard_trg` | a webhook event is stored once; only its processing outcome can be recorded afterwards |
+| `sales_channel_chk` | online sales have no till or shift; only online sales carry delivery |
 
 ## Sessions
 
@@ -118,4 +129,4 @@ Defined in `prisma/migrations/20261018120100_phase2_integrity_guards/migration.s
 
 ## Seed data
 
-`prisma/seed/base.ts` creates (only if missing): the permission catalogue, six system roles with default permissions, the chart of accounts, VAT (7.5 %, editable) / zero-rated / exempt tax rates, default settings (NGN, prices include VAT), units of measure (PC, SET, PACK, ML, L, G, KG), the `MAIN` store location, payment methods (Cash, Card → card clearing, Bank transfer → main bank with a required reference), register `Till 1` and the current fiscal year with 12 monthly periods. `prisma/seed.ts` additionally creates the first owner from `SEED_OWNER_EMAIL` / `SEED_OWNER_PASSWORD` with a forced password change. No real customer data is seeded.
+`prisma/seed/base.ts` creates (only if missing): the permission catalogue, six system roles with default permissions, the chart of accounts, VAT (7.5 %, editable) / zero-rated / exempt tax rates, default settings (NGN, prices include VAT), units of measure (PC, SET, PACK, ML, L, G, KG), the `MAIN` store location, payment methods (Cash, Card → card clearing, Bank transfer → main bank with a required reference), register `Till 1`, online payment methods (`ONLINE_TRANSFER` → bank, `ONLINE_CARD` → gateway clearing), delivery options (store pickup, Lagos, nationwide), the disabled system user `system@rhoyards.invalid` and the current fiscal year with 12 monthly periods. `prisma/seed.ts` additionally creates the first owner from `SEED_OWNER_EMAIL` / `SEED_OWNER_PASSWORD` with a forced password change. No real customer data is seeded.

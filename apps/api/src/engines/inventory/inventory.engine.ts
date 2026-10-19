@@ -143,7 +143,7 @@ export class StockSession {
   private async writeBalance(b: BalanceState) {
     await this.tx.inventoryBalance.update({
       where: { id: b.id },
-      data: { qtyOnHand: new Prisma.Decimal(b.qtyOnHand.toFixed(3)) },
+      data: { qtyOnHand: new Prisma.Decimal(b.qtyOnHand.toFixed(3)), qtyReserved: new Prisma.Decimal(b.qtyReserved.toFixed(3)) },
     });
   }
 
@@ -289,6 +289,48 @@ export class StockSession {
       throw insufficient(`${v.sku}: only ${usableQty.toFixed(3)} available${lotNumber ? ` in lot ${lotNumber}` : ''}`, details);
     }
     return allocations;
+  }
+
+  /**
+   * Holds quantity for an online order: raises qty_reserved, which every other issue respects (POS included),
+   * so both channels sell from one pool. For batch-tracked items only usable lots count (expired lots are excluded
+   * when the expired policy blocks them). No stock moves and nothing is valued until the reservation is consumed.
+   */
+  async reserve(input: { variantId: string; locationId: string; qty: Decimal; expired?: ExpiredPolicy }): Promise<void> {
+    if (input.qty.lte(ZERO)) throw invalid('Reserved quantity must be positive');
+    const v = this.variant(input.variantId);
+    const bal = this.balance(input.variantId, input.locationId);
+    let available = bal.qtyOnHand.minus(bal.qtyReserved);
+    if (v.isBatchTracked) {
+      const lots = await this.tx.inventoryBatch.aggregate({
+        where: {
+          variantId: v.id,
+          locationId: input.locationId,
+          status: 'AVAILABLE',
+          qtyOnHand: { gt: 0 },
+          ...((input.expired ?? 'block') === 'block' ? { OR: [{ expiryDate: null }, { expiryDate: { gte: this.today } }] } : {}),
+        },
+        _sum: { qtyOnHand: true },
+      });
+      available = Decimal.min(available, dec(lots._sum.qtyOnHand?.toString() ?? 0).minus(bal.qtyReserved));
+    }
+    if (input.qty.gt(available)) {
+      throw insufficient(`${v.sku}: only ${Decimal.max(available, ZERO).toFixed(3)} available`, {
+        variantId: v.id,
+        sku: v.sku,
+        requested: input.qty.toFixed(3),
+        available: Decimal.max(available, ZERO).toFixed(3),
+      });
+    }
+    bal.qtyReserved = bal.qtyReserved.plus(input.qty);
+    await this.writeBalance(bal);
+  }
+
+  /** Gives reserved quantity back to the pool (order cancelled or expired, or about to be issued). */
+  async release(input: { variantId: string; locationId: string; qty: Decimal }): Promise<void> {
+    const bal = this.balance(input.variantId, input.locationId);
+    bal.qtyReserved = Decimal.max(bal.qtyReserved.minus(input.qty), ZERO);
+    await this.writeBalance(bal);
   }
 
   /** Stock out valued at the moving average. */

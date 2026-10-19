@@ -49,6 +49,9 @@ const SalesPage = page(salePages, 'SalesPage');
 const SalePage = page(salePages, 'SalePage');
 const ReceiptPage = page(() => import('./features/pos/Receipt'), 'ReceiptPage');
 const CustomersPage = page(() => import('./features/customers/CustomersPage'), 'CustomersPage');
+const orderPages = () => import('./features/orders/OrdersPages');
+const OrdersPage = page(orderPages, 'OrdersPage');
+const OrderPage = page(orderPages, 'OrderPage');
 const AccountsPage = page(() => import('./features/accounting/AccountsPage'), 'AccountsPage');
 const JournalsPage = page(() => import('./features/accounting/JournalsPage'), 'JournalsPage');
 const JournalPage = page(() => import('./features/accounting/JournalPage'), 'JournalPage');
@@ -114,6 +117,8 @@ export const routes: RouteObject[] = [
           guarded('sales', ['sales.view', 'pos.sell'], <SalesPage />),
           guarded('sales/:id', ['sales.view', 'pos.sell'], <SalePage />),
           guarded('customers', 'customers.view', <CustomersPage />),
+          guarded('orders', 'orders.view', <OrdersPage />),
+          guarded('orders/:id', 'orders.view', <OrderPage />),
           guarded('accounting/accounts', 'accounting.view', <AccountsPage />),
           guarded('accounting/journals', 'accounting.view', <JournalsPage />),
           guarded('accounting/journals/new', 'journals.create', <JournalPage />),

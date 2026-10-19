@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { onlineSettingsSchema } from './store';
 
 const optionalText = (max: number) => z.string().trim().max(max).optional().default('');
 
@@ -36,6 +37,7 @@ export const settingsSchema = z.object({
     /** Largest line discount a cashier may give without a supervisor's approval. */
     maxDiscountPercent: z.number().min(0).max(100),
   }),
+  online: onlineSettingsSchema,
 });
 
 export type Settings = z.infer<typeof settingsSchema>;
@@ -117,4 +119,10 @@ export const DEFAULT_SETTINGS: Settings = {
   inventory: { allowNegativeStock: false, blockExpiredSale: true, expiryWarningDays: 90 },
   receipt: { header: '', footer: 'Thank you for shopping with us.' },
   pos: { maxDiscountPercent: 10 },
+  online: {
+    enabled: true,
+    bankTransferInstructions: 'Pay by bank transfer to our account and use your order number as the reference. We confirm payments during business hours.',
+    transferHoldHours: 24,
+    gatewayHoldMinutes: 30,
+  },
 };

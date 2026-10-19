@@ -11,6 +11,9 @@ import { setBusinessTimeZone } from './lib/business-date';
 import { createLogger } from './lib/logger';
 import { LocalDiskStorage, type FileStorage } from './lib/storage';
 import { accountingRouter } from './modules/accounting/accounting.routes';
+import { ordersRouter } from './modules/orders/orders.routes';
+import { webhooksRouter } from './modules/payments/webhooks';
+import { storeRouter } from './modules/store/store.routes';
 import { catalogRouter } from './modules/catalog/catalog.routes';
 import { filesRouter } from './modules/files/files.routes';
 import { inventoryRouter } from './modules/inventory/inventory.routes';
@@ -66,7 +69,15 @@ export function createApp(
   );
   app.use(helmet());
   app.use(cors({ origin: env.CORS_ORIGINS, credentials: true }));
-  app.use(express.json({ limit: '1mb' }));
+  app.use(
+    express.json({
+      limit: '1mb',
+      // Webhook signatures are computed over the exact bytes received.
+      verify: (req, _res, buf) => {
+        if (req.url?.startsWith('/api/v1/webhooks/')) (req as express.Request).rawBody = Buffer.from(buf);
+      },
+    }),
+  );
   app.use(cookieParser());
   app.use('/api', createRateLimiter({ windowMs: 60_000, limit: 300 }));
 
@@ -80,6 +91,10 @@ export function createApp(
 
   // Unauthenticated system endpoints.
   app.use('/api/v1', healthRouter);
+  // Payment providers call these server-to-server; they authenticate by signature, not session.
+  app.use('/api/v1', webhooksRouter(env));
+  // The public storefront has its own customer sessions and CSRF, so it is mounted before the staff middleware.
+  app.use('/api/v1/store', originCheck(env.CORS_ORIGINS), storeRouter(env, sessions.secureCookie));
 
   // Staff API: origin check → session → CSRF, then module routers enforce permissions per route.
   app.use('/api/v1', originCheck(env.CORS_ORIGINS), loadSession(sessions), csrfProtection);
@@ -96,6 +111,7 @@ export function createApp(
   app.use('/api/v1', customersRouter);
   app.use('/api/v1', posRouter);
   app.use('/api/v1', accountingRouter);
+  app.use('/api/v1', ordersRouter(env));
 
   app.use(notFoundHandler);
   app.use(errorHandler(logger));

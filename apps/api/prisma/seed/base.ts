@@ -1,6 +1,7 @@
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { ALL_PERMISSIONS, DEFAULT_SETTINGS, PERMISSIONS, ROLE_CODES, SYSTEM_ROLES } from '@rhoyards/shared';
 import { ensureFiscalYear } from '../../src/lib/fiscal-calendar';
+import { SYSTEM_USER_EMAIL } from '../../src/lib/system-user';
 import { CHART_OF_ACCOUNTS } from './chart-of-accounts';
 
 export { ensureFiscalYear };
@@ -118,11 +119,32 @@ export async function seedBase(prisma: PrismaClient, now = new Date()) {
       { code: 'CASH', name: 'Cash', kind: 'CASH', accountId: await accountId('CASH_ON_HAND'), sortOrder: 1 },
       { code: 'CARD', name: 'Card (POS terminal)', kind: 'CARD', accountId: await accountId('CARD_CLEARING'), sortOrder: 2 },
       { code: 'TRANSFER', name: 'Bank transfer', kind: 'BANK_TRANSFER', accountId: await accountId('BANK_MAIN'), requiresReference: true, sortOrder: 3 },
+      // Online-store payments (one per provider; see src/modules/payments).
+      { code: 'ONLINE_TRANSFER', name: 'Online order - bank transfer', kind: 'BANK_TRANSFER', accountId: await accountId('BANK_MAIN'), requiresReference: true, availablePos: false, availableOnline: true, sortOrder: 10 },
+      { code: 'ONLINE_CARD', name: 'Online order - card (gateway)', kind: 'CARD', accountId: await accountId('GATEWAY_CLEARING'), availablePos: false, availableOnline: true, sortOrder: 11 },
     ],
     skipDuplicates: true,
   });
   const main = await prisma.location.findUniqueOrThrow({ where: { code: 'MAIN' } });
   await prisma.register.createMany({ data: [{ locationId: main.id, name: 'Till 1' }], skipDuplicates: true });
+
+  // Starting delivery options (editable in Settings).
+  await prisma.shippingMethod.createMany({
+    data: [
+      { name: 'Pick up in store', description: 'Collect from the shop once we confirm your order is ready.', fee: new Prisma.Decimal(0), isPickup: true, sortOrder: 1 },
+      { name: 'Lagos delivery', description: 'Delivered in 1-2 working days.', fee: new Prisma.Decimal(2500), states: ['Lagos'], sortOrder: 2 },
+      { name: 'Nationwide delivery', description: 'Delivered in 3-5 working days.', fee: new Prisma.Decimal(5000), sortOrder: 3 },
+    ],
+    skipDuplicates: true,
+  });
+
+  // The author of automatic postings with no staff member behind them (e.g. a payment confirmed by webhook).
+  // Disabled, with an unusable password hash: it can never sign in.
+  await prisma.user.upsert({
+    where: { email: SYSTEM_USER_EMAIL },
+    update: {},
+    create: { email: SYSTEM_USER_EMAIL, fullName: 'System (online store)', passwordHash: '!disabled', status: 'DISABLED' },
+  });
 
   const startMonth = DEFAULT_SETTINGS.fiscal.yearStartMonth;
   const fyStartYear = now.getUTCMonth() + 1 >= startMonth ? now.getUTCFullYear() : now.getUTCFullYear() - 1;

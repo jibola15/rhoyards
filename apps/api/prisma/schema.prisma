@@ -58,23 +58,25 @@ model User {
   transfersReceived    StockTransfer[]   @relation("TransferReceivedBy")
   transfersCancelled   StockTransfer[]   @relation("TransferCancelledBy")
 
-  purchaseOrdersCreated  PurchaseOrder[]   @relation("PoCreatedBy")
-  purchaseOrdersApproved PurchaseOrder[]   @relation("PoApprovedBy")
-  purchaseOrdersEnded    PurchaseOrder[]   @relation("PoEndedBy")
-  receiptsCreated        GoodsReceipt[]    @relation("GrnCreatedBy")
-  receiptsPosted         GoodsReceipt[]    @relation("GrnPostedBy")
-  receiptsCancelled      GoodsReceipt[]    @relation("GrnCancelledBy")
-  invoicesCreated        SupplierInvoice[] @relation("InvCreatedBy")
-  invoicesPosted         SupplierInvoice[] @relation("InvPostedBy")
-  invoicesCancelled      SupplierInvoice[] @relation("InvCancelledBy")
+  purchaseOrdersCreated  PurchaseOrder[]      @relation("PoCreatedBy")
+  purchaseOrdersApproved PurchaseOrder[]      @relation("PoApprovedBy")
+  purchaseOrdersEnded    PurchaseOrder[]      @relation("PoEndedBy")
+  receiptsCreated        GoodsReceipt[]       @relation("GrnCreatedBy")
+  receiptsPosted         GoodsReceipt[]       @relation("GrnPostedBy")
+  receiptsCancelled      GoodsReceipt[]       @relation("GrnCancelledBy")
+  invoicesCreated        SupplierInvoice[]    @relation("InvCreatedBy")
+  invoicesPosted         SupplierInvoice[]    @relation("InvPostedBy")
+  invoicesCancelled      SupplierInvoice[]    @relation("InvCancelledBy")
   supplierPayments       SupplierPayment[]
-  returnsCreated         PurchaseReturn[]  @relation("RetCreatedBy")
-  returnsPosted          PurchaseReturn[]  @relation("RetPostedBy")
-  returnsCancelled       PurchaseReturn[]  @relation("RetCancelledBy")
-  shiftsWorked           CashierShift[]    @relation("ShiftCashier")
-  shiftsClosed           CashierShift[]    @relation("ShiftClosedBy")
-  salesRung              Sale[]            @relation("SaleCashier")
-  discountsApproved      Sale[]            @relation("SaleDiscountApprover")
+  returnsCreated         PurchaseReturn[]     @relation("RetCreatedBy")
+  returnsPosted          PurchaseReturn[]     @relation("RetPostedBy")
+  returnsCancelled       PurchaseReturn[]     @relation("RetCancelledBy")
+  shiftsWorked           CashierShift[]       @relation("ShiftCashier")
+  shiftsClosed           CashierShift[]       @relation("ShiftClosedBy")
+  salesRung              Sale[]               @relation("SaleCashier")
+  discountsApproved      Sale[]               @relation("SaleDiscountApprover")
+  orderStatusChanges     OrderStatusHistory[]
+  paymentsVerified       PaymentAttempt[]
 
   @@index([status])
   @@map("users")
@@ -151,22 +153,26 @@ enum SessionRealm {
 }
 
 model Session {
-  id            String       @id @default(uuid()) @db.Uuid
-  tokenHash     String       @unique @map("token_hash")
-  realm         SessionRealm
-  userId        String?      @map("user_id") @db.Uuid
-  csrfToken     String       @map("csrf_token")
-  ip            String?
-  userAgent     String?      @map("user_agent")
-  createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
-  lastSeenAt    DateTime     @default(now()) @map("last_seen_at") @db.Timestamptz(3)
-  idleExpiresAt DateTime     @map("idle_expires_at") @db.Timestamptz(3)
-  expiresAt     DateTime     @map("expires_at") @db.Timestamptz(3)
-  revokedAt     DateTime?    @map("revoked_at") @db.Timestamptz(3)
+  id                String       @id @default(uuid()) @db.Uuid
+  tokenHash         String       @unique @map("token_hash")
+  realm             SessionRealm
+  userId            String?      @map("user_id") @db.Uuid
+  /// Set for CUSTOMER-realm sessions (storefront); staff sessions use user_id.
+  customerAccountId String?      @map("customer_account_id") @db.Uuid
+  csrfToken         String       @map("csrf_token")
+  ip                String?
+  userAgent         String?      @map("user_agent")
+  createdAt         DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  lastSeenAt        DateTime     @default(now()) @map("last_seen_at") @db.Timestamptz(3)
+  idleExpiresAt     DateTime     @map("idle_expires_at") @db.Timestamptz(3)
+  expiresAt         DateTime     @map("expires_at") @db.Timestamptz(3)
+  revokedAt         DateTime?    @map("revoked_at") @db.Timestamptz(3)
 
-  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user            User?            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  customerAccount CustomerAccount? @relation(fields: [customerAccountId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([customerAccountId])
   @@index([expiresAt])
   @@map("sessions")
 }
@@ -231,6 +237,7 @@ model TaxRate {
   grnLines      GoodsReceiptLine[]
   invoiceLines  SupplierInvoiceLine[]
   saleItems     SaleItem[]
+  orderItems    OnlineOrderItem[]
 
   @@map("tax_rates")
 }
@@ -292,6 +299,7 @@ model Location {
   purchaseReturns PurchaseReturn[]
   registers       Register[]
   sales           Sale[]
+  onlineOrders    OnlineOrder[]
 
   @@map("locations")
 }
@@ -340,10 +348,10 @@ enum PeriodStatus {
 }
 
 model FiscalYear {
-  id        String       @id @default(uuid()) @db.Uuid
-  name      String       @unique
-  startDate DateTime     @map("start_date") @db.Date
-  endDate   DateTime     @map("end_date") @db.Date
+  id         String       @id @default(uuid()) @db.Uuid
+  name       String       @unique
+  startDate  DateTime     @map("start_date") @db.Date
+  endDate    DateTime     @map("end_date") @db.Date
   status     PeriodStatus @default(OPEN)
   closedAt   DateTime?    @map("closed_at") @db.Timestamptz(3)
   closedById String?      @map("closed_by_id") @db.Uuid
@@ -591,6 +599,7 @@ model ProductVariant {
   invoiceLines    SupplierInvoiceLine[]
   returnLines     PurchaseReturnLine[]
   saleItems       SaleItem[]
+  orderItems      OnlineOrderItem[]
 
   @@index([productId])
   @@map("product_variants")
@@ -1185,7 +1194,10 @@ model Customer {
   createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt   DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  sales Sale[]
+  sales     Sale[]
+  account   CustomerAccount?
+  addresses CustomerAddress[]
+  orders    OnlineOrder[]
 
   @@index([name])
   @@index([phone])
@@ -1308,6 +1320,8 @@ model Sale {
   /// Left on the customer's account (credit sale).
   balanceDue           Decimal     @default(0) @map("balance_due") @db.Decimal(18, 2)
   costTotal            Decimal     @default(0) @map("cost_total") @db.Decimal(18, 2)
+  /// Delivery charged on an online sale, net of VAT (its VAT is in tax_total). Posted to Shipping income.
+  shippingAmount       Decimal     @default(0) @map("shipping_amount") @db.Decimal(18, 2)
   discountApprovedById String?     @map("discount_approved_by_id") @db.Uuid
   idempotencyKey       String?     @unique @map("idempotency_key")
   journalEntryId       String?     @map("journal_entry_id") @db.Uuid
@@ -1324,6 +1338,7 @@ model Sale {
   discountApprovedBy User?         @relation("SaleDiscountApprover", fields: [discountApprovedById], references: [id], onDelete: Restrict)
   items              SaleItem[]
   payments           SalePayment[]
+  onlineOrder        OnlineOrder?
 
   @@index([status, completedAt])
   @@index([shiftId])
@@ -1381,4 +1396,231 @@ model SalePayment {
 
   @@index([saleId])
   @@map("sale_payments")
+}
+
+// ───────────────────────────── Online store ─────────────────────────────
+
+enum CustomerAccountStatus {
+  ACTIVE
+  DISABLED
+}
+
+/// Storefront sign-in, kept apart from staff users. Email is stored lower-case (CHECK).
+model CustomerAccount {
+  id               String                @id @default(uuid()) @db.Uuid
+  customerId       String                @unique @map("customer_id") @db.Uuid
+  email            String                @unique
+  passwordHash     String                @map("password_hash")
+  status           CustomerAccountStatus @default(ACTIVE)
+  failedLoginCount Int                   @default(0) @map("failed_login_count")
+  lockedUntil      DateTime?             @map("locked_until") @db.Timestamptz(3)
+  lastLoginAt      DateTime?             @map("last_login_at") @db.Timestamptz(3)
+  createdAt        DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  customer Customer  @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  sessions Session[]
+
+  @@map("customer_accounts")
+}
+
+model CustomerAddress {
+  id         String   @id @default(uuid()) @db.Uuid
+  customerId String   @map("customer_id") @db.Uuid
+  recipient  String
+  phone      String
+  line1      String
+  line2      String?
+  city       String
+  state      String
+  isDefault  Boolean  @default(false) @map("is_default")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@map("customer_addresses")
+}
+
+model ShippingMethod {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @unique
+  description String?
+  /// Charged in the store's pricing mode (VAT-inclusive or exclusive), at the standard VAT rate.
+  fee         Decimal  @db.Decimal(18, 2)
+  /// Free when the items total reaches this amount.
+  freeOver    Decimal? @map("free_over") @db.Decimal(18, 2)
+  /// States served; empty = everywhere.
+  states      String[] @default([])
+  isPickup    Boolean  @default(false) @map("is_pickup")
+  isActive    Boolean  @default(true) @map("is_active")
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  orders OnlineOrder[]
+
+  @@map("shipping_methods")
+}
+
+enum OnlineOrderStatus {
+  PENDING_PAYMENT
+  PAID
+  PROCESSING
+  PACKED
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  ON_HOLD
+}
+
+enum ReservationStatus {
+  ACTIVE
+  CONSUMED
+  RELEASED
+}
+
+enum PaymentProvider {
+  MANUAL
+  TEST
+}
+
+enum PaymentAttemptStatus {
+  INITIATED
+  SUCCEEDED
+  FAILED
+}
+
+/// An online order. Its items hold a stock reservation at the fulfilment location while unpaid;
+/// payment turns the order into a sale (channel ONLINE) in one transaction.
+model OnlineOrder {
+  id                String            @id @default(uuid()) @db.Uuid
+  number            String            @unique
+  customerId        String            @map("customer_id") @db.Uuid
+  status            OnlineOrderStatus @default(PENDING_PAYMENT)
+  locationId        String            @map("location_id") @db.Uuid
+  pricesIncludeTax  Boolean           @map("prices_include_tax")
+  email             String
+  shippingMethodId  String            @map("shipping_method_id") @db.Uuid
+  shippingName      String            @map("shipping_name")
+  isPickup          Boolean           @map("is_pickup")
+  /// Delivery as charged (pricing mode), and split into net and VAT.
+  shippingFee       Decimal           @map("shipping_fee") @db.Decimal(18, 2)
+  shippingNet       Decimal           @map("shipping_net") @db.Decimal(18, 2)
+  shippingTax       Decimal           @map("shipping_tax") @db.Decimal(18, 2)
+  /// Sum of item line totals as charged.
+  itemsTotal        Decimal           @map("items_total") @db.Decimal(18, 2)
+  /// Net of VAT, items and delivery.
+  subtotal          Decimal           @db.Decimal(18, 2)
+  taxTotal          Decimal           @map("tax_total") @db.Decimal(18, 2)
+  total             Decimal           @db.Decimal(18, 2)
+  recipient         String?
+  phone             String?
+  line1             String?
+  line2             String?
+  city              String?
+  state             String?
+  note              String?
+  provider          PaymentProvider?
+  reservationStatus ReservationStatus @default(ACTIVE) @map("reservation_status")
+  reservedUntil     DateTime?         @map("reserved_until") @db.Timestamptz(3)
+  trackingReference String?           @map("tracking_reference")
+  saleId            String?           @unique @map("sale_id") @db.Uuid
+  /// Payment held as a customer deposit while the order is on hold.
+  depositJournalId  String?           @map("deposit_journal_id") @db.Uuid
+  placedAt          DateTime          @default(now()) @map("placed_at") @db.Timestamptz(3)
+  paidAt            DateTime?         @map("paid_at") @db.Timestamptz(3)
+  cancelledAt       DateTime?         @map("cancelled_at") @db.Timestamptz(3)
+  updatedAt         DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  customer       Customer             @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  location       Location             @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  shippingMethod ShippingMethod       @relation(fields: [shippingMethodId], references: [id], onDelete: Restrict)
+  sale           Sale?                @relation(fields: [saleId], references: [id], onDelete: Restrict)
+  items          OnlineOrderItem[]
+  history        OrderStatusHistory[]
+  payments       PaymentAttempt[]
+
+  @@index([status, placedAt])
+  @@index([customerId])
+  @@index([reservationStatus, reservedUntil])
+  @@map("online_orders")
+}
+
+model OnlineOrderItem {
+  id          String  @id @default(uuid()) @db.Uuid
+  orderId     String  @map("order_id") @db.Uuid
+  lineNo      Int     @map("line_no")
+  variantId   String  @map("variant_id") @db.Uuid
+  sku         String
+  description String
+  qty         Decimal @db.Decimal(14, 3)
+  unitPrice   Decimal @map("unit_price") @db.Decimal(18, 2)
+  taxRateId   String? @map("tax_rate_id") @db.Uuid
+  taxRate     Decimal @default(0) @map("tax_rate") @db.Decimal(7, 4)
+  netAmount   Decimal @map("net_amount") @db.Decimal(18, 2)
+  taxAmount   Decimal @map("tax_amount") @db.Decimal(18, 2)
+  lineTotal   Decimal @map("line_total") @db.Decimal(18, 2)
+
+  order   OnlineOrder    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  variant ProductVariant @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  tax     TaxRate?       @relation(fields: [taxRateId], references: [id], onDelete: Restrict)
+
+  @@unique([orderId, lineNo])
+  @@map("online_order_items")
+}
+
+/// Append-only (trigger).
+model OrderStatusHistory {
+  id          String             @id @default(uuid()) @db.Uuid
+  orderId     String             @map("order_id") @db.Uuid
+  fromStatus  OnlineOrderStatus? @map("from_status")
+  toStatus    OnlineOrderStatus  @map("to_status")
+  actorUserId String?            @map("actor_user_id") @db.Uuid
+  /// Changed by the customer (cancel) rather than by staff or the system.
+  byCustomer  Boolean            @default(false) @map("by_customer")
+  note        String?
+  createdAt   DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  order OnlineOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  actor User?       @relation(fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@index([orderId])
+  @@map("order_status_history")
+}
+
+model PaymentAttempt {
+  id           String               @id @default(uuid()) @db.Uuid
+  orderId      String               @map("order_id") @db.Uuid
+  provider     PaymentProvider
+  reference    String
+  amount       Decimal              @db.Decimal(18, 2)
+  status       PaymentAttemptStatus @default(INITIATED)
+  providerData Json?                @map("provider_data")
+  verifiedAt   DateTime?            @map("verified_at") @db.Timestamptz(3)
+  verifiedById String?              @map("verified_by_id") @db.Uuid
+  createdAt    DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  order      OnlineOrder @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  verifiedBy User?       @relation(fields: [verifiedById], references: [id], onDelete: Restrict)
+
+  @@unique([provider, reference])
+  @@index([orderId])
+  @@map("payment_attempts")
+}
+
+/// Every webhook call is stored before it is acted on; UNIQUE(provider, event_id) makes redelivery a no-op.
+model PaymentWebhookEvent {
+  id             String          @id @default(uuid()) @db.Uuid
+  provider       PaymentProvider
+  eventId        String          @map("event_id")
+  signatureValid Boolean         @map("signature_valid")
+  payload        Json
+  receivedAt     DateTime        @default(now()) @map("received_at") @db.Timestamptz(3)
+  processedAt    DateTime?       @map("processed_at") @db.Timestamptz(3)
+  result         String?
+
+  @@unique([provider, eventId])
+  @@map("payment_webhook_events")
 }

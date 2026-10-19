@@ -23,6 +23,7 @@ import { PageHeader, QueryError } from '../../components/page';
 import { api } from '../../lib/api';
 import { LocationsCard } from './LocationsCard';
 import { PaymentMethodsCard, RegistersCard } from './PosSetupCards';
+import { ShippingMethodsCard } from './ShippingMethodsCard';
 import { TaxRatesCard } from './TaxRatesCard';
 
 const SETTINGS_KEY = ['settings'] as const;
@@ -271,6 +272,34 @@ export function SettingsPage() {
 
         <PaymentMethodsCard />
         <RegistersCard />
+
+        <SectionForm
+          section="online"
+          title="Online store"
+          description="Ordering on the website, and how long unpaid orders hold stock."
+          value={s.online}
+          disabled={readOnly}
+        >
+          {({ register, formState: { errors } }) => (
+            <>
+              <label className="flex items-center gap-2 text-sm">
+                <Checkbox {...register('enabled')} /> Accept online orders
+              </label>
+              <Field id="online-bank" label="Bank transfer instructions" description="Shown to customers who pay by transfer, with the amount and order number." error={errors.bankTransferInstructions?.message as string | undefined}>
+                <Textarea rows={3} {...register('bankTransferInstructions')} />
+              </Field>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field id="online-transfer-hold" label="Hold stock for a transfer (hours)" error={errors.transferHoldHours?.message as string | undefined}>
+                  <Input type="number" min={1} max={168} className="w-32" {...register('transferHoldHours', { valueAsNumber: true })} />
+                </Field>
+                <Field id="online-gateway-hold" label="Hold stock for a card payment (minutes)" error={errors.gatewayHoldMinutes?.message as string | undefined}>
+                  <Input type="number" min={5} max={240} className="w-32" {...register('gatewayHoldMinutes', { valueAsNumber: true })} />
+                </Field>
+              </div>
+            </>
+          )}
+        </SectionForm>
+        <ShippingMethodsCard />
 
         <SectionForm
           section="receipt"

@@ -3,7 +3,7 @@
 The rules every module follows when it posts to the general ledger. Implemented by the posting engine
 ([`apps/api/src/engines/posting/posting.service.ts`](../apps/api/src/engines/posting/posting.service.ts)); enforced again by database triggers (see [DATABASE.md](DATABASE.md)).
 
-Status: the **engine, ledger guards, chart of accounts and periods are built (Phase 2)**; **inventory costing, stock adjustments and transfers are built (Phase 3)**; **purchasing — receipts, supplier invoices, payments and returns — is built (Phase 4)**; **POS sales and shift close are built (Phase 5)**; **manual journals, periods, year-end close, opening balances and the financial statements are built (Phase 6)**. Posting rules marked *(Phase n)* for later phases are applied when that module is built.
+Status: the **engine, ledger guards, chart of accounts and periods are built (Phase 2)**; **inventory costing, stock adjustments and transfers are built (Phase 3)**; **purchasing — receipts, supplier invoices, payments and returns — is built (Phase 4)**; **POS sales and shift close are built (Phase 5)**; **manual journals, periods, year-end close, opening balances and the financial statements are built (Phase 6)**; **online orders, payment confirmation and customer deposits are built (Phase 7)**. Posting rules marked *(Phase n)* for later phases are applied when that module is built.
 
 ## 1. Fundamentals
 
@@ -65,8 +65,10 @@ Dispatch removes stock (FEFO; expired lots are not sent) from the source; receip
 | POS sale *(built — §5b)* | Cash (1000) / Card clearing (1020) / Bank (1010) per payment method; AR (1100) for an authorised credit balance | Sales revenue (4000) net of discounts; VAT output |
 | …and its cost *(built)* | COGS (5000) at WAC | Inventory |
 | Credit-sale receipt *(Phase 8)* | Cash / Bank | AR |
-| **Online order — payment confirmed** *(Phase 7)* (revenue recognised at confirmation) | Gateway clearing (1030) / Bank | Sales revenue; Shipping income (4100); VAT output |
-| …and its cost *(Phase 7)* | COGS at WAC | Inventory |
+| **Online order — payment confirmed** *(built — §5d)* (revenue recognised at confirmation) | Gateway clearing (1030) / Bank (1010) per provider | Sales revenue; Shipping income (4100); VAT output |
+| Online payment that cannot be fulfilled yet (on hold, or order already cancelled) *(built — §5d)* | Gateway clearing / Bank | Customer deposits (2200) |
+| …completed later from the deposit *(built)* | Customer deposits | Sales revenue; Shipping income; VAT output |
+| …and its cost *(built)* | COGS at WAC | Inventory |
 | Sales return + refund *(Phase 8)* | Sales returns (4010); VAT output | Cash / Bank / AR |
 | …if restocked *(Phase 8)* | Inventory at the **original sale-line unit cost** | COGS |
 | Online order cancelled after payment *(Phase 8)* | handled as a full return + refund | |
@@ -127,6 +129,25 @@ Payments may not add up to more than the total; change is given only on cash (te
 **Year-end close.** With every period but the last closed and the last one ended: one entry dated the last day of the year (`posting_key = YEAR_END:<fiscal year id>`) debits each income account and credits each expense account by its balance for the year, with the difference to Retained earnings (3100). The last period and the year are then closed for good, and the next year is created if missing.
 
 **Opening balances.** One entry (`OPENING_BALANCE`) of the balances on the go-live date; the difference goes to Opening balance equity (3900). Control accounts are excluded (opening stock is an opening-stock adjustment). To change it, reverse the entry and enter it again.
+
+## 5d. Online orders in detail *(built in Phase 7)*
+
+**Checkout** prices the cart from the database with `priceSale` (the same function as the till). Delivery is one more line, taxed at the standard VAT rate in the store's pricing mode; "free over" thresholds compare with the items total. The order stores each line's net, VAT and total and the delivery split, fixed from then on (database guard). Nothing is posted at checkout; the stock is **reserved** (`qty_reserved`) at the fulfilment location, which every other issue respects, POS included.
+
+**Payment confirmed** (verified webhook, or staff verification of a transfer) — one transaction, `posting_key = SALE:<sale id>`:
+
+| Debit | Credit |
+|---|---|
+| the provider's payment-method account (Bank 1010 for transfers, Payment gateway clearing 1030 for cards), order total | Sales revenue (4000) = Σ item net |
+| COGS (5000) at the issue cost | Shipping income (4100) = delivery net |
+| | VAT output (2100) = items VAT + delivery VAT |
+| | Inventory (1200) |
+
+The reservation is released and the stock issued (FEFO, moving average) in the same transaction. The sale (`channel = ONLINE`, no till or shift) carries `shipping_amount` = delivery net.
+
+**Customer deposits.** If the money arrives when the order cannot be completed — its hold lapsed and the items sold, or it was already cancelled — it is posted Dr payment account / Cr Customer deposits (2200) (`posting_key = ONLINE_DEPOSIT:<order id>`). Completing an on-hold order later posts the sale with Dr Customer deposits instead of the payment account. Refunds of deposits come with Phase 8.
+
+**Controls (tested):** one sale and one journal per order however often the webhook is delivered; stock ledger = Inventory; trial balance balances.
 
 ## 6. Profit measures
 

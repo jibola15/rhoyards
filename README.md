@@ -2,7 +2,7 @@
 
 Inventory, in-store POS, online store, purchasing, expenses and double-entry accounting for a cosmetics retailer with one physical store and an online shop.
 
-> **Status:** Phases 1–6 complete — project setup; database, authentication, roles & permissions, settings, audit log and ledger posting engine; catalogue, suppliers and inventory (moving-average costing, FEFO lots, expiry, adjustments, transfers, stock ledger); purchasing (orders, partial receipts, supplier invoices with three-way matching, payments, returns, statements, aged payables); point of sale (registers, shifts, barcode till, discounts with supervisor approval, VAT, split and credit payments, suspend/resume, printable receipts, customers, payment methods); accounting (chart of accounts, manual journals with reversals, period and year-end close, opening balances, general ledger, trial balance, profit and loss, balance sheet, cash flow, aged receivables). See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) for the roadmap and decisions log.
+> **Status:** Phases 1–7 complete — project setup; database, authentication, roles & permissions, settings, audit log and ledger posting engine; catalogue, suppliers and inventory (moving-average costing, FEFO lots, expiry, adjustments, transfers, stock ledger); purchasing (orders, partial receipts, supplier invoices with three-way matching, payments, returns, statements, aged payables); point of sale (registers, shifts, barcode till, discounts with supervisor approval, VAT, split and credit payments, suspend/resume, printable receipts, customers, payment methods); accounting (chart of accounts, manual journals with reversals, period and year-end close, opening balances, general ledger, trial balance, profit and loss, balance sheet, cash flow, aged receivables); online store (catalogue with filters, product pages, cart, customer accounts, checkout with delivery options, stock reservations shared with the POS, bank-transfer and test-gateway payments with signed webhooks, order tracking, and order management in the back office). See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) for the roadmap and decisions log.
 
 ## Repository layout
 
@@ -57,4 +57,5 @@ npm run dev
 - [Architecture](docs/ARCHITECTURE.md)
 - [Database](docs/DATABASE.md)
 - [Accounting rules](docs/ACCOUNTING_RULES.md)
+- [Online payments](docs/PAYMENTS.md)
 - API reference: run the API and open http://localhost:4000/api/docs

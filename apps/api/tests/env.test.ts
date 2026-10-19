@@ -22,6 +22,12 @@ describe('environment configuration', () => {
     expect(() => loadEnv({ ...db, NODE_ENV: 'staging' })).toThrow(/NODE_ENV/);
   });
 
+  it('enables the test payment gateway outside production only', () => {
+    expect(loadEnv({ ...db }).PAYMENT_TEST_ENABLED).toBe(true);
+    expect(loadEnv({ ...db, NODE_ENV: 'production' }).PAYMENT_TEST_ENABLED).toBe(false);
+    expect(() => loadEnv({ ...db, NODE_ENV: 'production', PAYMENT_TEST_ENABLED: 'true' })).toThrow(/cannot be true in production/);
+  });
+
   it('requires a database URL outside tests', () => {
     expect(() => loadEnv({ NODE_ENV: 'production' })).toThrow(/DATABASE_URL is required/);
     expect(() => loadEnv({ NODE_ENV: 'test' })).not.toThrow();

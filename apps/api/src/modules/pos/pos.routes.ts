@@ -11,7 +11,6 @@ import {
   saleInputSchema,
   saleListQuerySchema,
   suspendSaleSchema,
-  type Permission,
   type PosContext,
 } from '@rhoyards/shared';
 import { requestContext } from '../../lib/audit';
@@ -20,7 +19,7 @@ import { withIdempotency } from '../../lib/idempotency';
 import { listEnvelope } from '../../lib/pagination';
 import { parse } from '../../lib/validation';
 import { registry } from '../../openapi/registry';
-import { requireAuth, requirePermission } from '../auth/auth.middleware';
+import { requireAnyPermission, requirePermission } from '../auth/auth.middleware';
 import { getSettings } from '../settings/settings.service';
 import { completeSale, getSale, listSales, receiptFor, resumeSale, suspendSale } from './sales.service';
 import { createPaymentMethod, createRegister, listPaymentMethods, listRegisters, updatePaymentMethod, updateRegister } from './setup.service';
@@ -29,15 +28,7 @@ import { closeShift, getShift, listShifts, myOpenShift, openShift } from './shif
 const idParams = z.object({ id: z.uuid() });
 const json = <T extends z.ZodType>(schema: T) => ({ body: { content: { 'application/json': { schema } } } });
 
-function requireAny(...perms: Permission[]): RequestHandler[] {
-  return [
-    requireAuth(),
-    (req, _res, next) => {
-      if (!perms.some((p) => req.auth!.permissions.has(p))) throw forbidden();
-      next();
-    },
-  ];
-}
+const requireAny = requireAnyPermission;
 
 const docs: [string, 'get' | 'post' | 'patch', string, z.ZodType | undefined][] = [
   ['/pos/context', 'get', 'Registers, my open shift, payment methods and pricing settings for the till (pos.sell)', undefined],

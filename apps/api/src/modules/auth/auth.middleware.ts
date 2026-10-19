@@ -87,6 +87,17 @@ export function requirePermission(...required: Permission[]): RequestHandler[] {
   ];
 }
 
+/** Requires an authenticated user holding at least one of the listed permissions. */
+export function requireAnyPermission(...perms: Permission[]): RequestHandler[] {
+  return [
+    requireAuth(),
+    (req, _res, next) => {
+      if (!perms.some((p) => req.auth!.permissions.has(p))) throw forbidden();
+      next();
+    },
+  ];
+}
+
 function tokensMatch(a: string, b: string): boolean {
   const ab = Buffer.from(a);
   const bb = Buffer.from(b);

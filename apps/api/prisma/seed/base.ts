@@ -1,41 +1,9 @@
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { ALL_PERMISSIONS, DEFAULT_SETTINGS, PERMISSIONS, ROLE_CODES, SYSTEM_ROLES } from '@rhoyards/shared';
+import { ensureFiscalYear } from '../../src/lib/fiscal-calendar';
 import { CHART_OF_ACCOUNTS } from './chart-of-accounts';
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-function utcDate(year: number, monthIndex: number, day: number): Date {
-  return new Date(Date.UTC(year, monthIndex, day));
-}
-
-/** Creates a fiscal year with 12 monthly periods if it does not exist. */
-export async function ensureFiscalYear(prisma: PrismaClient, startYear: number, startMonth: number) {
-  const start = utcDate(startYear, startMonth - 1, 1);
-  const end = utcDate(startYear + 1, startMonth - 1, 0);
-  const name = startMonth === 1 ? `FY${startYear}` : `FY${startYear}/${String((startYear + 1) % 100).padStart(2, '0')}`;
-  const existing = await prisma.fiscalYear.findUnique({ where: { name } });
-  if (existing) return existing;
-
-  return prisma.fiscalYear.create({
-    data: {
-      name,
-      startDate: start,
-      endDate: end,
-      periods: {
-        create: Array.from({ length: 12 }, (_, i) => {
-          const m = startMonth - 1 + i;
-          const pStart = utcDate(startYear, m, 1);
-          const pEnd = utcDate(startYear, m + 1, 0);
-          return {
-            name: `${MONTHS[pStart.getUTCMonth()]} ${pStart.getUTCFullYear()}`,
-            startDate: pStart,
-            endDate: pEnd,
-          };
-        }),
-      },
-    },
-  });
-}
+export { ensureFiscalYear };
 
 /**
  * Reference data every environment needs. Idempotent: existing rows are left as they are,

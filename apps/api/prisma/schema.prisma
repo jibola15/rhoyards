@@ -344,8 +344,10 @@ model FiscalYear {
   name      String       @unique
   startDate DateTime     @map("start_date") @db.Date
   endDate   DateTime     @map("end_date") @db.Date
-  status    PeriodStatus @default(OPEN)
-  createdAt DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  status     PeriodStatus @default(OPEN)
+  closedAt   DateTime?    @map("closed_at") @db.Timestamptz(3)
+  closedById String?      @map("closed_by_id") @db.Uuid
+  createdAt  DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
 
   periods AccountingPeriod[]
 
@@ -403,6 +405,7 @@ model JournalEntry {
   lines      JournalLine[]
 
   @@index([entryDate])
+  @@index([status, entryDate])
   @@index([sourceType, sourceId])
   @@map("journal_entries")
 }

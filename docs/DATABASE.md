@@ -58,6 +58,7 @@ Schema source: [`apps/api/prisma/schema.prisma`](../apps/api/prisma/schema.prism
 | 3 | Inventory | `inventory_balances` (variant × location), `inventory_batches` (lots), `stock_movements` (ledger), `stock_adjustments` + `_lines`, `stock_transfers` + `_lines` |
 | 4 | Purchasing | `purchase_orders` + `_lines`, `goods_receipts` + `goods_receipt_lines` (with matching counters), `supplier_invoices` + `_lines`, `supplier_payments` + `supplier_payment_allocations`, `purchase_returns` + `_lines` |
 | 5 | Customers & POS | `customers` (credit limit), `payment_methods` (each → a ledger account), `registers`, `cashier_shifts`, `sales` (POS now; online in Phase 7), `sale_items` (price, discount, tax and cost per line), `sale_payments` |
+| 6 | Accounting | no new tables: `fiscal_years.closed_at` / `closed_by_id`; index on `journal_entries (status, entry_date)` for the statements |
 
 ### Inventory model
 
@@ -106,6 +107,10 @@ Defined in `prisma/migrations/20261018120100_phase2_integrity_guards/migration.s
 | `sales_guard_trg` | completed sales cannot be changed or deleted |
 | `sale_items_qty_chk` / `_amounts_chk` / `_guard_trg` | qty > 0, 0 ≤ returned ≤ qty; line total = net + tax; lines of a completed sale are frozen except `qty_returned` |
 | `sale_payments_amount_chk` / `_guard_trg` | amount > 0; tendered = amount + change; payments of a completed sale cannot change |
+| `journal_entries_guard_trg` (Phase 6 revision) | as Phase 2, but reads the period `FOR SHARE`, so a posting and a period close serialise |
+| `fiscal_years_guard_trg` | dates fixed; a closed fiscal year cannot be reopened |
+| `accounting_periods_guard_trg` | dates fixed; the status of a period in a closed fiscal year cannot change |
+| `accounts_guard_trg` | an account with postings keeps its type and stays postable; a system key is permanent; system accounts cannot be deleted |
 
 ## Sessions
 

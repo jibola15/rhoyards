@@ -2,6 +2,16 @@ import {
   Activity,
   ArrowLeftRight,
   Banknote,
+  BookOpen,
+  CalendarRange,
+  Landmark,
+  ListTree,
+  NotebookPen,
+  Scale,
+  TrendingUp,
+  Waves,
+  Wallet,
+  Flag,
   ClipboardCheck,
   Contact,
   Receipt,
@@ -32,6 +42,8 @@ export interface NavItem {
   /** Hidden from users without this permission (the API enforces it regardless). */
   permission?: Permission | Permission[];
 }
+
+const STATEMENTS: Permission[] = ['reports.financial', 'accounting.view'];
 
 export interface NavGroup {
   label: string;
@@ -76,6 +88,26 @@ export const navGroups: NavGroup[] = [
       { label: 'Returns to suppliers', to: '/purchasing/returns', icon: Undo2, permission: 'purchasing.view' },
       { label: 'Aged payables', to: '/purchasing/payables', icon: Hourglass, permission: 'purchasing.view' },
       { label: 'Suppliers', to: '/suppliers', icon: Truck, permission: 'suppliers.view' },
+    ],
+  },
+  {
+    label: 'Accounting',
+    items: [
+      { label: 'Chart of accounts', to: '/accounting/accounts', icon: ListTree, permission: 'accounting.view' },
+      { label: 'Journals', to: '/accounting/journals', icon: NotebookPen, permission: 'accounting.view' },
+      { label: 'General ledger', to: '/accounting/ledger', icon: BookOpen, permission: 'accounting.view' },
+      { label: 'Periods', to: '/accounting/periods', icon: CalendarRange, permission: 'accounting.view' },
+      { label: 'Opening balances', to: '/accounting/opening-balances', icon: Flag, permission: 'accounting.view' },
+    ],
+  },
+  {
+    label: 'Reports',
+    items: [
+      { label: 'Profit and loss', to: '/reports/profit-and-loss', icon: TrendingUp, permission: STATEMENTS },
+      { label: 'Balance sheet', to: '/reports/balance-sheet', icon: Landmark, permission: STATEMENTS },
+      { label: 'Cash flow', to: '/reports/cash-flow', icon: Waves, permission: STATEMENTS },
+      { label: 'Trial balance', to: '/reports/trial-balance', icon: Scale, permission: STATEMENTS },
+      { label: 'Aged receivables', to: '/reports/receivables', icon: Wallet, permission: STATEMENTS },
     ],
   },
   {

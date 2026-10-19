@@ -3,7 +3,7 @@
 The rules every module follows when it posts to the general ledger. Implemented by the posting engine
 ([`apps/api/src/engines/posting/posting.service.ts`](../apps/api/src/engines/posting/posting.service.ts)); enforced again by database triggers (see [DATABASE.md](DATABASE.md)).
 
-Status: the **engine, ledger guards, chart of accounts and periods are built (Phase 2)**; **inventory costing, stock adjustments and transfers are built (Phase 3)**; **purchasing — receipts, supplier invoices, payments and returns — is built (Phase 4)**; **POS sales and shift close are built (Phase 5)**. Posting rules marked *(Phase n)* for later phases are applied when that module is built.
+Status: the **engine, ledger guards, chart of accounts and periods are built (Phase 2)**; **inventory costing, stock adjustments and transfers are built (Phase 3)**; **purchasing — receipts, supplier invoices, payments and returns — is built (Phase 4)**; **POS sales and shift close are built (Phase 5)**; **manual journals, periods, year-end close, opening balances and the financial statements are built (Phase 6)**. Posting rules marked *(Phase n)* for later phases are applied when that module is built.
 
 ## 1. Fundamentals
 
@@ -75,8 +75,8 @@ Dispatch removes stock (FEFO; expired lots are not sent) from the source; receip
 | Expense *(Phase 8)* | Expense account; VAT input if recoverable | Cash / Bank (paid) or AP (on account) |
 | Cash over / short at shift close *(built — §5b)* | Cash (over) / Cash over-short (4900) (short) | Cash over-short (over) / Cash (short) |
 | Card settlement *(Phase 8)* | Bank; Bank charges (6050) | Card clearing |
-| Opening balances *(Phase 6)* | each debit-balance account | Opening balance equity (3900) — and the reverse for credit balances |
-| Year-end close *(Phase 6)* | income accounts | expense accounts; difference to Retained earnings (3100) |
+| Opening balances *(built — §5c)* | each debit-balance account | Opening balance equity (3900) — and the reverse for credit balances |
+| Year-end close *(built — §5c)* | income accounts | expense accounts; difference to Retained earnings (3100) |
 
 Discounts are posted **net** (revenue is recorded after the line discount); the discount amount is stored on the sale for reporting.
 
@@ -118,12 +118,38 @@ Payments may not add up to more than the total; change is given only on cash (te
 
 **Controls (tested):** Inventory ledger = stock ledger value; AR ledger = Σ customer balances.
 
+## 5c. Ledger work in detail *(built in Phase 6)*
+
+**Manual journals.** Drafts (`journals.create`) can be edited or deleted and do not touch the ledger; posting (`journals.post`) re-validates, numbers and locks the entry (`posting_key = MANUAL:<id>`). Lines must balance, and every account must be active, postable and **not a control account** (AR, AP, Inventory, GRNI — these follow their sub-ledgers). A posted entry is corrected only by reversal (`journals.reverse`): a mirror entry dated on or after the original, at most once, never of a reversal. Only manual and opening-balance entries are reversed this way; entries made by documents are corrected through the document.
+
+**Periods.** A period can be closed (`periods.manage`) once it has ended, when every earlier period is closed and no draft journals are dated in it. Closed periods reject postings (application check and database trigger, both reading the period under a share lock). Only the latest closed period can be reopened, with a reason, and never in a closed year.
+
+**Year-end close.** With every period but the last closed and the last one ended: one entry dated the last day of the year (`posting_key = YEAR_END:<fiscal year id>`) debits each income account and credits each expense account by its balance for the year, with the difference to Retained earnings (3100). The last period and the year are then closed for good, and the next year is created if missing.
+
+**Opening balances.** One entry (`OPENING_BALANCE`) of the balances on the go-live date; the difference goes to Opening balance equity (3900). Control accounts are excluded (opening stock is an opening-stock adjustment). To change it, reverse the entry and enter it again.
+
 ## 6. Profit measures
 
 - **Gross profit** = net sales (revenue − returns − discounts) − cost of goods sold (accounts with subtype `COGS`).
 - **Net profit** = gross profit + other income − operating expenses (subtype `OPERATING_EXPENSE`).
-- Both are computed from posted journal lines only.
+- Both are computed from posted journal lines only, excluding year-end closing entries.
+
+## 6a. Financial statements *(built in Phase 6)*
+
+All statements use posted lines only. Accounts are placed by their classification (`subtype`), which must belong to the account type.
+
+| Statement | Basis |
+|---|---|
+| Trial balance (as at) | each account's net balance in the debit or credit column; totals equal |
+| General ledger (account, dates) | opening balance, each line with running balance in the account's normal direction, closing balance |
+| Profit and loss (dates) | revenue − returns/discounts = net sales; − cost of sales = gross profit; + other income − operating and other expenses = net profit. Closing entries excluded |
+| Balance sheet (as at) | assets (cash and bank, current, non-current) = liabilities (current, non-current) + equity + current earnings (income − expenses not yet closed) |
+| Cash flow (dates, direct) | opening cash + operating + investing + financing = closing cash (see the 2026-10-22 decision for classification) |
+| Aged receivables (as at) | unpaid credit-sale balances by age, per customer; total = AR ledger |
+| Aged payables (as at) | see §5a; total = AP ledger |
+
+**Controls (tested, acceptance #8 and #13):** every posted entry balances; the trial balance balances and each row equals the general-ledger closing balance; the balance sheet balances; P&L profit for the year = balance-sheet current earnings; cash flow reconciles to the cash accounts; aged receivables = AR, aged payables = AP; stock valuation = Inventory.
 
 ## 7. Chart of accounts
 
-Seeded from [`apps/api/prisma/seed/chart-of-accounts.ts`](../apps/api/prisma/seed/chart-of-accounts.ts). Accounts with a `system_key` are referenced by the posting rules above and must not be deleted or repurposed. Additional accounts can be added freely (Phase 6 UI).
+Seeded from [`apps/api/prisma/seed/chart-of-accounts.ts`](../apps/api/prisma/seed/chart-of-accounts.ts). Accounts with a `system_key` are referenced by the posting rules above and must not be deleted or repurposed. Additional accounts can be added on the Chart of accounts screen. An account with postings keeps its type and stays postable; system accounts cannot be deactivated or retyped (database guard).

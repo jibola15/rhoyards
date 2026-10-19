@@ -10,3 +10,4 @@ export * from './inventory';
 export * from './purchasing';
 export * from './pricing';
 export * from './pos';
+export * from './accounting';

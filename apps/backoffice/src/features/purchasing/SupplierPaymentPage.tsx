@@ -236,7 +236,7 @@ function PaymentView({ payment }: { payment: SupplierPaymentDetail }) {
               ))}
             </ul>
           )}
-          <p className="mt-4 text-xs text-muted-foreground">Payments are final. To correct a mistake, ask your accountant to reverse the journal entry.</p>
+          <p className="mt-4 text-xs text-muted-foreground">Payments are final and cannot be edited or reversed.</p>
         </CardContent>
       </Card>
     </div>

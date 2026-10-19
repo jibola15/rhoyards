@@ -29,14 +29,14 @@ export interface PostJournalInput {
   reversalOfId?: string;
 }
 
-function dateOnly(d: Date): Date {
+export function dateOnly(d: Date): Date {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
 }
 
 const invalid = (message: string, details?: unknown) => new AppError(400, 'VALIDATION_ERROR', message, details);
 
 /** Normalises and validates lines: amounts rounded to 2 dp, exactly one positive side per line, totals equal. */
-function normaliseLines(lines: JournalLineInput[]) {
+export function normaliseLines(lines: JournalLineInput[]) {
   if (lines.length < 2) throw invalid('A journal entry needs at least two lines');
   const normalised = lines.map((line, i) => {
     const debit = roundMoney(line.debit ?? 0);
@@ -59,7 +59,7 @@ function normaliseLines(lines: JournalLineInput[]) {
   return normalised;
 }
 
-async function resolveAccounts(tx: Tx, lines: { accountId?: string; accountKey?: string }[]) {
+export async function resolveAccounts(tx: Tx, lines: { accountId?: string; accountKey?: string }[]) {
   const keys = [...new Set(lines.flatMap((l) => (l.accountKey ? [l.accountKey] : [])))];
   const ids = [...new Set(lines.flatMap((l) => (l.accountId ? [l.accountId] : [])))];
   const accounts = await tx.account.findMany({
@@ -77,11 +77,18 @@ async function resolveAccounts(tx: Tx, lines: { accountId?: string; accountKey?:
   });
 }
 
-async function openPeriodFor(tx: Tx, entryDate: Date) {
-  const period = await tx.accountingPeriod.findFirst({
-    where: { startDate: { lte: entryDate }, endDate: { gte: entryDate } },
-  });
-  if (!period) throw businessRule(`No accounting period covers ${entryDate.toISOString().slice(0, 10)}`);
+/**
+ * The open period containing the date. FOR SHARE holds the period row until the transaction ends,
+ * so closing a period (FOR UPDATE) waits for in-flight postings and they cannot slip in after it.
+ */
+export async function openPeriodFor(tx: Tx, entryDate: Date) {
+  // Compare as a calendar-date string so the session time zone cannot shift the day.
+  const day = entryDate.toISOString().slice(0, 10);
+  const [period] = await tx.$queryRaw<{ id: string; name: string; status: string }[]>`
+    SELECT id, name, status::text FROM accounting_periods
+    WHERE start_date <= ${day}::date AND end_date >= ${day}::date
+    FOR SHARE`;
+  if (!period) throw businessRule(`No accounting period covers ${day}`);
   if (period.status !== 'OPEN') throw businessRule(`Accounting period ${period.name} is closed`);
   return period;
 }

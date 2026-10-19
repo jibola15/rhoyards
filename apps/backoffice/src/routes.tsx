@@ -49,6 +49,19 @@ const SalesPage = page(salePages, 'SalesPage');
 const SalePage = page(salePages, 'SalePage');
 const ReceiptPage = page(() => import('./features/pos/Receipt'), 'ReceiptPage');
 const CustomersPage = page(() => import('./features/customers/CustomersPage'), 'CustomersPage');
+const AccountsPage = page(() => import('./features/accounting/AccountsPage'), 'AccountsPage');
+const JournalsPage = page(() => import('./features/accounting/JournalsPage'), 'JournalsPage');
+const JournalPage = page(() => import('./features/accounting/JournalPage'), 'JournalPage');
+const LedgerPage = page(() => import('./features/accounting/LedgerPage'), 'LedgerPage');
+const PeriodsPage = page(() => import('./features/accounting/PeriodsPage'), 'PeriodsPage');
+const OpeningBalancesPage = page(() => import('./features/accounting/OpeningBalancesPage'), 'OpeningBalancesPage');
+const reports = () => import('./features/reports/FinancialReports');
+const TrialBalancePage = page(reports, 'TrialBalancePage');
+const ProfitLossPage = page(reports, 'ProfitLossPage');
+const BalanceSheetPage = page(reports, 'BalanceSheetPage');
+const CashFlowPage = page(reports, 'CashFlowPage');
+const ReceivablesAgingPage = page(reports, 'ReceivablesAgingPage');
+const statements: Permission[] = ['reports.financial', 'accounting.view'];
 
 const guarded = (path: string, permission: Permission | Permission[], element: ReactNode): RouteObject => ({
   path,
@@ -94,13 +107,25 @@ export const routes: RouteObject[] = [
           guarded('purchasing/returns', 'purchasing.view', <PurchaseReturnsPage />),
           guarded('purchasing/returns/new', 'purchasing.manage', <PurchaseReturnPage />),
           guarded('purchasing/returns/:id', 'purchasing.view', <PurchaseReturnPage />),
-          guarded('purchasing/payables', 'purchasing.view', <PayablesAgingPage />),
+          guarded('purchasing/payables', ['purchasing.view', 'reports.financial'], <PayablesAgingPage />),
           guarded('pos', 'pos.sell', <PosPage />),
           guarded('pos/shifts', ['pos.shift.reconcile', 'sales.view'], <ShiftsPage />),
           guarded('pos/shifts/:id', ['pos.shift.manage', 'pos.shift.reconcile', 'sales.view'], <ShiftPage />),
           guarded('sales', ['sales.view', 'pos.sell'], <SalesPage />),
           guarded('sales/:id', ['sales.view', 'pos.sell'], <SalePage />),
           guarded('customers', 'customers.view', <CustomersPage />),
+          guarded('accounting/accounts', 'accounting.view', <AccountsPage />),
+          guarded('accounting/journals', 'accounting.view', <JournalsPage />),
+          guarded('accounting/journals/new', 'journals.create', <JournalPage />),
+          guarded('accounting/journals/:id', 'accounting.view', <JournalPage />),
+          guarded('accounting/ledger', 'accounting.view', <LedgerPage />),
+          guarded('accounting/periods', 'accounting.view', <PeriodsPage />),
+          guarded('accounting/opening-balances', 'accounting.view', <OpeningBalancesPage />),
+          guarded('reports/trial-balance', statements, <TrialBalancePage />),
+          guarded('reports/profit-and-loss', statements, <ProfitLossPage />),
+          guarded('reports/balance-sheet', statements, <BalanceSheetPage />),
+          guarded('reports/cash-flow', statements, <CashFlowPage />),
+          guarded('reports/receivables', statements, <ReceivablesAgingPage />),
           guarded('inventory/stock', 'inventory.view', <StockPage />),
           guarded('inventory/movements', 'inventory.view', <MovementsPage />),
           guarded('inventory/expiry', 'inventory.view', <ExpiryPage />),

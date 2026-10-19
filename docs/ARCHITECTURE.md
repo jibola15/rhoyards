@@ -66,6 +66,16 @@ Every call writes `stock_movements` rows (the append-only stock ledger). Documen
 - `GET /sales/:id/receipt` returns receipt data (business details, lines, VAT breakdown, payments). Users without `sales.view` see only their own sales.
 - `src/lib/business-date.ts`: journal dates use the business day in `BUSINESS_TIMEZONE`.
 
+## Accounting
+
+`src/modules/accounting/`: chart of accounts, manual journals, periods and year-end close, opening balances, and the statements (`reports.service.ts`). Rules are in [ACCOUNTING_RULES.md §5c and §6a](ACCOUNTING_RULES.md).
+
+- Manual drafts are `journal_entries` rows in `DRAFT` with no number; posting locks the row `FOR UPDATE`, re-validates (balance, active postable non-control accounts, open period) and numbers it from the same `JOURNAL` sequence as automatic postings.
+- Period close/reopen and year-end close lock the period or year `FOR UPDATE`; `openPeriodFor()` in the posting engine reads the period `FOR SHARE`.
+- Statements aggregate posted `journal_lines` per account (`totalsByAccount`). The general ledger pages with a SQL window function, so the running balance is right on every page.
+- Fiscal years are built by `src/lib/fiscal-calendar.ts` (also used by the seed).
+- Permissions: `accounting.view` for the ledger screens; statements accept `reports.financial` or `accounting.view` (managers see statements, not journals).
+
 ## Files
 
 `POST /files/images` (multer, memory, size-limited) → magic-byte check with `file-type` (JPEG/PNG/WebP only) → `sharp` re-encode to WebP, max 1600 px, metadata stripped → stored under a server-generated key via the `FileStorage` interface (`LocalDiskStorage`; S3-compatible driver later). `GET /files/:id` serves public files (product images) without a session, private files only to signed-in staff, with `nosniff` and explicit content type.
@@ -99,6 +109,7 @@ Module layout: `src/modules/<name>/<name>.routes.ts` (+ controller, service, sch
 - Phase 3 screens: Products (search/filters), product editor (details, variants with cosmetics attributes and barcodes, images, archive), Catalogue setup (brands, categories, units), Suppliers, Stock levels (with stock-ledger ↔ GL reconciliation), Stock adjustments (draft → post), Transfers (draft → dispatch → receive), Expiry, Stock movements.
 - Phase 4 screens: Purchase orders (approve, receive, close), Goods received (from an order or direct; lots/expiry), Supplier invoices (match received goods, extra charges, live totals), Supplier payments (allocate oldest-first), Returns to suppliers, supplier account page with statement, Aged payables. Document lists share `DocumentList`.
 - Phase 5 screens: Point of sale (register and shift, scan or search, cart with line discounts and price override, customer, suspend/resume, payment dialog with split tender and change, supervisor-approval prompt, printable receipt via print CSS), Sales list and detail with reprint, Shifts (open; close with cash count and variance), Customers (credit limit, balance), Settings → POS (discount limit, registers, payment methods).
+- Phase 6 screens: Chart of accounts (grouped by type, balances, add/edit/deactivate), Journals (all sources, filters) and journal page (draft editor with live difference, post, delete, reverse, link to the source document), General ledger, Periods (close in order, reopen with reason, add next year, year-end close), Opening balances wizard, and Reports: Profit and loss, Balance sheet, Cash flow, Trial balance, Aged receivables (printable).
 - `VariantPicker` is an accessible combobox: type to search, or scan — Enter on an exact barcode/SKU selects it.
 - Routes are code-split (`React.lazy`); libraries are in long-lived vendor chunks.
 - API calls go through `createApiClient` (`packages/shared`): same-origin `/api/v1`, `credentials: 'include'`, `X-CSRF-Token` on state-changing requests, typed `ApiError` from the error envelope.

@@ -27,6 +27,14 @@ Date: 2026-10-18
 | 2026-10-21 | Shift close posts cash over/short (4900) immediately (moved forward from Phase 8) | Cash in the ledger matches the counted drawer at every close |
 | 2026-10-21 | Business day defined by `BUSINESS_TIMEZONE` (default Africa/Lagos) | A sale at 00:30 local time is dated that day, not the previous UTC day |
 | 2026-10-21 | Suspended sales hold no stock and post nothing; resuming returns the cart and deletes the parked record | Parked carts cannot block or distort stock |
+| 2026-10-22 | **Control accounts** (AR, AP, Inventory, GRNI) take no manual journals or opening balances | Each always equals its sub-ledger (customers, suppliers, stock, receipts); tested |
+| 2026-10-22 | Only ledger-made entries (manual journals, opening balances) can be reversed from the ledger; document entries are corrected through their documents. **Supersedes 2026-10-20**: a wrong supplier payment cannot be fixed by reversing its journal (that would break AP = Σ supplier balances) | Needs a supplier-payment correction document — see known issues |
+| 2026-10-22 | Periods close in date order, only after they end, and only with no draft journals in them; only the latest closed period can be reopened (reason audited) | Closed periods form an unbroken run from the start, so "closed" always means final up to a date |
+| 2026-10-22 | Year-end close posts one closing entry (income/expense → Retained earnings) dated the last day of the year, then locks the year for good; the P&L leaves closing entries out | Prior-year P&L stays reportable; the balance sheet shows unclosed profit as "current earnings" |
+| 2026-10-22 | Opening balances: one entry, difference to Opening balance equity; redone only by reversing it. Opening stock stays an opening-stock adjustment | No second route into Inventory that could bypass per-product valuation |
+| 2026-10-22 | Cash flow uses the direct method over accounts classified CASH; each cash entry's other lines give the activity (non-current assets → investing; equity and non-current liabilities → financing; the rest operating). Opening-balance cash counts as opening cash | Exact by construction: opening + net change = closing, tested |
+| 2026-10-22 | New classifications NON_CURRENT_ASSET, NON_CURRENT_LIABILITY and OTHER_EXPENSE; the classification must belong to the account type | Statements group accounts by classification |
+| 2026-10-22 | Postings read their period `FOR SHARE` (app and trigger); closing locks it `FOR UPDATE` | A posting can never land in a period that is closing at the same moment |
 
 ---
 
@@ -417,6 +425,14 @@ At the end of each phase I will: list the files changed, run migrations, typeche
 | 10 | Hardening and release | Security review (CSP, upload, rate limits, session settings), Playwright E2E, OpenAPI completeness, docs, production build, deployment guide | Full suite + E2E green |
 
 Integration tests run against a dedicated Neon `test` branch, which is reset per test file. A real PostgreSQL database is required: the locking, trigger and concurrency guarantees can't be tested on SQLite or with mocks.
+
+### Known issues and limitations (as of Phase 6)
+
+- **Customer and supplier opening balances** cannot be entered yet: their control accounts are closed to manual entries, and there is no "opening invoice" document. Planned with customer receipts (Phase 8); until then, start with zero balances or enter the open invoices as supplier invoices.
+- **Correcting a supplier payment** keyed against the wrong supplier or amount has no document yet (payments are final; their journals cannot be reversed from the ledger). Planned for Phase 8 alongside refunds.
+- **Aged receivables** ages each credit sale from its sale date (customers have no payment terms yet) and shows balances as they stand today; receipts against them arrive in Phase 8.
+- **Cash flow** lists every non-cash line of a cash entry, so a sale shows its cost of sales and the matching inventory reduction as two operating lines that cancel out.
+- Prettier is configured but the codebase is not formatted with it (`npm run format:check` fails across earlier phases too); ESLint is the enforced style check.
 
 ---
 

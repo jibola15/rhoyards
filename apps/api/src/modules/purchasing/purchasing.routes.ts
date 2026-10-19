@@ -1,4 +1,4 @@
-import { Router, type RequestHandler } from 'express';
+import { Router } from 'express';
 import { z } from 'zod';
 import {
   dateInput,
@@ -8,15 +8,13 @@ import {
   poInputSchema,
   purchaseListQuerySchema,
   purchaseReturnInputSchema,
-  type Permission,
 } from '@rhoyards/shared';
 import { requestContext } from '../../lib/audit';
-import { forbidden } from '../../lib/errors';
 import { withIdempotency } from '../../lib/idempotency';
 import { listEnvelope } from '../../lib/pagination';
 import { parse } from '../../lib/validation';
 import { registry } from '../../openapi/registry';
-import { requireAuth, requirePermission } from '../auth/auth.middleware';
+import { requireAnyPermission, requirePermission } from '../auth/auth.middleware';
 import {
   cancelSupplierInvoice,
   createSupplierInvoice,
@@ -49,16 +47,7 @@ const invoiceListQuery = listQuery(['DRAFT', 'POSTED', 'PARTIALLY_PAID', 'PAID',
   openOnly: z.enum(['true', 'false']).optional().transform((v) => v === 'true'),
 });
 
-/** Allows the request if the user holds any of the listed permissions. */
-function requireAny(...perms: Permission[]): RequestHandler[] {
-  return [
-    requireAuth(),
-    (req, _res, next) => {
-      if (!perms.some((p) => req.auth!.permissions.has(p))) throw forbidden();
-      next();
-    },
-  ];
-}
+const requireAny = requireAnyPermission;
 
 const view = requirePermission('purchasing.view');
 const manage = requirePermission('purchasing.manage');

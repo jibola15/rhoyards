@@ -10,6 +10,7 @@ import type { Env } from './config/env';
 import { setBusinessTimeZone } from './lib/business-date';
 import { createLogger } from './lib/logger';
 import { LocalDiskStorage, type FileStorage } from './lib/storage';
+import { accountingRouter } from './modules/accounting/accounting.routes';
 import { catalogRouter } from './modules/catalog/catalog.routes';
 import { filesRouter } from './modules/files/files.routes';
 import { inventoryRouter } from './modules/inventory/inventory.routes';
@@ -94,6 +95,7 @@ export function createApp(
   app.use('/api/v1', purchasingRouter);
   app.use('/api/v1', customersRouter);
   app.use('/api/v1', posRouter);
+  app.use('/api/v1', accountingRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler(logger));

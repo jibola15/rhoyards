@@ -2,8 +2,9 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup, configure } from '@testing-library/react';
 import { afterEach, vi } from 'vitest';
 
-// Pages are lazy-loaded; the first import of a route module in a test file can take over a second.
-configure({ asyncUtilTimeout: 5000 });
+// Pages are lazy-loaded; with every test file transforming route modules in parallel, the first import in a
+// file can take several seconds. Kept below the 15 s test timeout so a real hang still fails.
+configure({ asyncUtilTimeout: 10_000 });
 
 afterEach(() => {
   cleanup();

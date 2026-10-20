@@ -67,16 +67,44 @@ beforeAll(async () => {
 describe('dashboard figures equal the ledger and the reports', () => {
   let d: DashboardData;
 
-  it('month-to-date sales and profit are the profit-and-loss figures', async () => {
+  it('this month (the default): sales and profit are the profit-and-loss figures', async () => {
     d = await ok(get(owner, '/dashboard'));
+    expect(d.period).toEqual({ key: 'this_month', label: 'This month', from: monthStart, to: today });
     const pl = await ok(get(owner, `/reports/profit-and-loss?from=${monthStart}&to=${today}`));
-    expect(d.monthToDate).toMatchObject({ netSales: pl.netSales, grossProfit: pl.grossProfit, netProfit: pl.netProfit });
+    expect(d.profit).toMatchObject({ netSales: pl.netSales, grossProfit: pl.grossProfit, netProfit: pl.netProfit });
     // 4 gels at 1,000 net, one returned; cost 600 each, the returned one restocked.
-    expect(d.monthToDate).toMatchObject({ netSales: '3000.00', grossProfit: '1200.00', grossMargin: '40.0' });
+    expect(d.profit).toMatchObject({ netSales: '3000.00', grossProfit: '1200.00', grossMargin: '40.0' });
     const todayOnly = await ok(get(owner, `/reports/profit-and-loss?from=${today}&to=${today}`));
-    expect(d.dailySales.at(-1)).toEqual({ date: today, netSales: todayOnly.netSales, sales: 3 });
-    expect(d.dailySales).toHaveLength(30);
-    expect(d.today).toEqual({ salesCount: 3, salesTotal: '4300.00', onlineOrders: 0 });
+    expect(d.series.bucket).toBe('day');
+    expect(d.series.points.at(-1)).toEqual({ date: today, netSales: todayOnly.netSales, sales: 3 });
+    expect(d.sales).toEqual({ count: 3, total: '4300.00', onlineOrders: 0 });
+  });
+
+  it('follows the chosen period: today, last month, this year by month', async () => {
+    const t = await ok(get(owner, '/dashboard?period=today'));
+    expect(t.period).toMatchObject({ key: 'today', from: today, to: today });
+    expect(t.sales.count).toBe(3);
+    // One day is charted with the six days before it.
+    expect(t.series.points).toHaveLength(7);
+    expect(t.series.points.at(-1).date).toBe(today);
+
+    const last = await ok(get(owner, '/dashboard?period=last_month'));
+    expect(last.period.to < monthStart).toBe(true);
+    expect(last.sales).toEqual({ count: 0, total: '0.00', onlineOrders: 0 });
+    expect(last.profit.netSales).toBe('0.00');
+    expect(last.topProducts).toEqual([]);
+    expect(last.series.points.every((p: { sales: number }) => p.sales === 0)).toBe(true);
+    // Balances and queues do not depend on the period.
+    expect(last.balances).toEqual(d.balances);
+    expect(last.attention).toEqual(d.attention);
+
+    const year = await ok(get(owner, '/dashboard?period=this_year'));
+    expect(year.period.from).toBe(`${today.slice(0, 4)}-01-01`);
+    expect(year.profit.netSales).toBe('3000.00');
+    if (year.series.points.length > 3) expect(year.series.bucket).toBe('month');
+    expect(year.series.points.at(-1)).toMatchObject({ sales: 3 });
+
+    expect((await get(owner, '/dashboard?period=next_week')).status).toBe(400);
   });
 
   it('cash, receivables, payables and stock are the balance-sheet and sub-ledger figures', async () => {

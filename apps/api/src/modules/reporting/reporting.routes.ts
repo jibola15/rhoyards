@@ -35,7 +35,7 @@ async function reportStores(req: Request, locationId: string | undefined, anySto
 }
 
 const docs: [string, string, Parameters<typeof registry.registerPath>[0]['request']][] = [
-  ['/dashboard', 'Management dashboard: today, month to date, balances, 30-day sales, attention items; ?locationId= for one store (dashboard.view)', { query: dashboardQuerySchema }],
+  ['/dashboard', 'Management dashboard: sales, profit, sales chart and best sellers for ?period= (default this month); balances and attention items as of now; ?locationId= for one store (dashboard.view)', { query: dashboardQuerySchema }],
   ['/reports/sales', 'Sales by day, product, category, brand, cashier, channel or location; ?format=csv (reports.sales)', { query: salesReportQuerySchema }],
   ['/reports/payments', 'Money taken and refunded by payment method; ?format=csv (reports.sales or reports.financial)', { query: periodReportQuerySchema }],
   ['/reports/expenses', 'Posted expenses by category, whole business; ?format=csv (reports.financial or expenses.view)', { query: expensesQuerySchema }],
@@ -89,7 +89,7 @@ export const reportingRouter = Router();
 
 reportingRouter.get('/dashboard', ...requirePermission('dashboard.view'), async (req, res) => {
   const q = parse(dashboardQuerySchema, req.query);
-  res.json({ data: await getDashboard(await reportStores(req, q.locationId)) });
+  res.json({ data: await getDashboard(await reportStores(req, q.locationId), q.period) });
 });
 reportingRouter.get('/reports/sales', ...requirePermission('reports.sales'), async (req, res) => {
   const q = parse(salesReportQuerySchema, req.query);

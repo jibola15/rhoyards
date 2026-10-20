@@ -3,14 +3,91 @@ import { dateInput } from './inputs';
 
 // ── Dashboard ─────────────────────────────────────────────────────────────
 
+export const DASHBOARD_PERIODS = [
+  'today',
+  'yesterday',
+  'this_week',
+  'last_week',
+  'this_month',
+  'last_month',
+  'last_30_days',
+  'this_quarter',
+  'last_quarter',
+  'this_year',
+  'last_year',
+] as const;
+export type DashboardPeriod = (typeof DASHBOARD_PERIODS)[number];
+export const DASHBOARD_PERIOD_LABELS: Record<DashboardPeriod, string> = {
+  today: 'Today',
+  yesterday: 'Yesterday',
+  this_week: 'This week',
+  last_week: 'Last week',
+  this_month: 'This month',
+  last_month: 'Last month',
+  last_30_days: 'Last 30 days',
+  this_quarter: 'This quarter',
+  last_quarter: 'Last quarter',
+  this_year: 'This year',
+  last_year: 'Last year',
+};
+
+const isoDay = (d: Date) => d.toISOString().slice(0, 10);
+const utc = (iso: string) => new Date(`${iso}T00:00:00Z`);
+const shift = (iso: string, days: number) => {
+  const d = utc(iso);
+  d.setUTCDate(d.getUTCDate() + days);
+  return isoDay(d);
+};
+const monthStart = (y: number, m: number) => isoDay(new Date(Date.UTC(y, m, 1)));
+const monthEnd = (y: number, m: number) => isoDay(new Date(Date.UTC(y, m + 1, 0)));
+
+/**
+ * The business dates a dashboard period covers, inclusive. `today` is the business date. Weeks start on Monday;
+ * periods still running ("this …") end today.
+ */
+export function dashboardPeriodRange(period: DashboardPeriod, today: string): { from: string; to: string } {
+  const t = utc(today);
+  const y = t.getUTCFullYear();
+  const m = t.getUTCMonth();
+  const weekday = (t.getUTCDay() + 6) % 7; // Monday = 0
+  const q = Math.floor(m / 3) * 3;
+  switch (period) {
+    case 'today':
+      return { from: today, to: today };
+    case 'yesterday':
+      return { from: shift(today, -1), to: shift(today, -1) };
+    case 'this_week':
+      return { from: shift(today, -weekday), to: today };
+    case 'last_week':
+      return { from: shift(today, -weekday - 7), to: shift(today, -weekday - 1) };
+    case 'this_month':
+      return { from: monthStart(y, m), to: today };
+    case 'last_month':
+      return { from: monthStart(y, m - 1), to: monthEnd(y, m - 1) };
+    case 'last_30_days':
+      return { from: shift(today, -29), to: today };
+    case 'this_quarter':
+      return { from: monthStart(y, q), to: today };
+    case 'last_quarter':
+      return { from: monthStart(y, q - 3), to: monthEnd(y, q - 1) };
+    case 'this_year':
+      return { from: monthStart(y, 0), to: today };
+    case 'last_year':
+      return { from: monthStart(y - 1, 0), to: monthEnd(y - 1, 11) };
+  }
+}
+
 export interface DashboardData {
   asOf: string;
-  today: { salesCount: number; salesTotal: string; onlineOrders: number };
+  /** The dates the sales, profit, chart and best sellers cover (inclusive). */
+  period: { key: DashboardPeriod; label: string; from: string; to: string };
   /** The stores the figures are for (one chosen store, or the person's own stores); null for the whole business. */
   stores: { ids: string[]; label: string } | null;
+  /** Completed sales in the period (VAT-inclusive totals) and online orders placed. */
+  sales: { count: number; total: string; onlineOrders: number };
   /** For one store, net profit is null: expenses are not recorded per store. */
-  monthToDate: { from: string; netSales: string; grossProfit: string; netProfit: string | null; grossMargin: string | null };
-  /** Always the whole business (one set of bank accounts and books). */
+  profit: { netSales: string; grossProfit: string; netProfit: string | null; grossMargin: string | null };
+  /** As of now, whatever the period; always the whole business (one set of bank accounts and books). */
   balances: {
     cash: string;
     cashAccounts: { id: string; code: string; name: string; balance: string }[];
@@ -18,9 +95,13 @@ export interface DashboardData {
     payables: string;
     inventory: string;
   };
-  /** Net sales per business day (ledger revenue less returns and discounts), last 30 days, oldest first. */
-  dailySales: { date: string; netSales: string; sales: number }[];
+  /**
+   * Net sales (ledger revenue less returns and discounts) per day, or per month for periods over three months,
+   * oldest first. A one-day period shows the seven days up to it. `date` is the day or the month's first day.
+   */
+  series: { bucket: 'day' | 'month'; from: string; to: string; points: { date: string; netSales: string; sales: number }[] };
   topProducts: { variantId: string; sku: string; name: string; qty: string; netSales: string }[];
+  /** As of now, whatever the period. */
   attention: {
     lowStock: number;
     outOfStock: number;
@@ -52,7 +133,7 @@ export const SALES_GROUP_LABELS: Record<SalesGroup, string> = {
 /** Optional: one store's figures (staff assigned to stores see only theirs). */
 const store = { locationId: z.uuid().optional() };
 
-export const dashboardQuerySchema = z.object(store);
+export const dashboardQuerySchema = z.object({ ...store, period: z.enum(DASHBOARD_PERIODS).default('this_month') });
 export const salesReportQuerySchema = z.object({ ...range, ...store, groupBy: z.enum(SALES_GROUPS).default('day') });
 export const periodReportQuerySchema = z.object({ ...range, ...store });
 export const stockReportQuerySchema = z.object({

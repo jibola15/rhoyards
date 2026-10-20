@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { Link } from 'react-router';
+import { Link, useSearchParams } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Printer } from 'lucide-react';
 import type {
@@ -178,9 +178,13 @@ export function TrialBalancePage() {
 
 // ── Profit and loss ───────────────────────────────────────────────────────
 
+/** A date from the link (the dashboard opens this page on its period), if it is one. */
+const dateParam = (v: string | null) => (v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null);
+
 export function ProfitLossPage() {
-  const [from, setFrom] = useState(yearStart());
-  const [to, setTo] = useState(today());
+  const [params] = useSearchParams();
+  const [from, setFrom] = useState(() => dateParam(params.get('from')) ?? yearStart());
+  const [to, setTo] = useState(() => dateParam(params.get('to')) ?? today());
   const report = useReport<ProfitAndLoss>('profit-and-loss', { from, to });
   const pl = report.data;
   return (

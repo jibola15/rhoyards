@@ -5,20 +5,31 @@ import { Badge, buttonVariants, Card, CardContent, CardHeader, CardTitle, Skelet
 import { useAuth } from '../../auth/AuthProvider';
 import { DocumentList } from '../../components/DocumentList';
 import { PageHeader, QueryError } from '../../components/page';
-import { formatDateTime, formatMoney, formatQty } from '../../lib/format';
+import { formatDate, formatDateTime, formatMoney, formatQty } from '../../lib/format';
 import { useSale } from './api';
 
 export function SalesPage() {
   const [params] = useSearchParams();
   const shiftId = params.get('shiftId') ?? undefined;
   const customerId = params.get('customerId') ?? undefined;
+  // The dashboard links here with its period.
+  const from = params.get('from') ?? undefined;
+  const to = params.get('to') ?? undefined;
   return (
     <DocumentList<SaleSummary>
       title="Sales"
-      description={shiftId ? 'Sales in the selected shift.' : customerId ? "The selected customer's sales." : 'Completed sales. Cashiers see the sales they rang up.'}
+      description={
+        shiftId
+          ? 'Sales in the selected shift.'
+          : customerId
+            ? "The selected customer's sales."
+            : from || to
+              ? `Completed sales${from ? ` from ${formatDate(from)}` : ''}${to ? ` to ${formatDate(to)}` : ''}.`
+              : 'Completed sales. Cashiers see the sales they rang up.'
+      }
       queryKey="sales"
       path="/sales"
-      params={{ shiftId, customerId }}
+      params={{ shiftId, customerId, from, to }}
       searchPlaceholder="Search by receipt number or customer"
       columns={[
         { header: 'Receipt', cell: (s) => <Link to={`/sales/${s.id}`} className="font-medium hover:underline">{s.number}</Link> },

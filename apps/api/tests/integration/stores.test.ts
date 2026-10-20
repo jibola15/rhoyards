@@ -129,13 +129,13 @@ describe('reports and the dashboard by store', () => {
   it('shows one store on the dashboard, without a net profit (expenses are not per store)', async () => {
     const all = await ok(owner.agent.get('/api/v1/dashboard'));
     expect(all.stores).toBeNull();
-    expect(all.monthToDate.netProfit).not.toBeNull();
+    expect(all.profit.netProfit).not.toBeNull();
 
     const one = await ok(owner.agent.get('/api/v1/dashboard').query({ locationId: ikeja }));
     expect(one.stores).toEqual({ ids: [ikeja], label: 'Ikeja Store' });
-    expect(one.today.salesCount).toBe(1);
-    expect(one.monthToDate).toMatchObject({ netSales: '2000.00', netProfit: null });
-    expect((await ok(owner.agent.get('/api/v1/dashboard').query({ locationId: main }))).today.salesCount).toBe(0);
+    expect(one.sales.count).toBe(1);
+    expect(one.profit).toMatchObject({ netSales: '2000.00', netProfit: null });
+    expect((await ok(owner.agent.get('/api/v1/dashboard').query({ locationId: main }))).sales.count).toBe(0);
 
     // A manager assigned to Ikeja gets Ikeja's dashboard without asking, and cannot ask for another store.
     expect((await ok(ikejaManager.agent.get('/api/v1/dashboard'))).stores.ids).toEqual([ikeja]);

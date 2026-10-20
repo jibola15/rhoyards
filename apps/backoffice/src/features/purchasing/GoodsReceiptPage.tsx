@@ -33,7 +33,7 @@ import { VariantPicker } from '../../components/VariantPicker';
 import { api } from '../../lib/api';
 import { formatDate, formatDateTime, formatMoney, formatQty } from '../../lib/format';
 import { applyServerErrors } from '../../lib/forms';
-import { useLocations } from '../users/api';
+import { useStoreChoices } from '../../lib/stores';
 import { today, useDocument, useRefreshPurchasing, useSupplierOptions } from './api';
 import { DocumentShell, InfoGrid } from './shared';
 
@@ -72,10 +72,10 @@ type FormValues = z.infer<typeof formSchema>;
 
 function GrnEditor({ existing, onDone }: { existing?: GoodsReceiptDetail; onDone: (g: GoodsReceiptDetail) => void }) {
   const suppliers = useSupplierOptions();
-  const locations = useLocations();
+  const stores = useStoreChoices(existing?.location.id);
   const [formError, setFormError] = useState<string | null>(null);
   const fromPo = Boolean(existing?.po);
-  const defaultLocation = locations.data?.find((l) => l.isActive && l.isPosEnabled)?.id ?? '';
+  const defaultLocation = stores.defaultId;
   const { register, control, handleSubmit, setError, formState } = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     values: existing
@@ -151,7 +151,7 @@ function GrnEditor({ existing, onDone }: { existing?: GoodsReceiptDetail; onDone
           <Field id="grn-location" label="Received at" error={formState.errors.locationId?.message}>
             <Select disabled={fromPo} {...register('locationId')}>
               <option value="">Choose…</option>
-              {locations.data?.filter((l) => l.isActive).map((l) => (
+              {stores.options.map((l) => (
                 <option key={l.id} value={l.id}>
                   {l.name}
                 </option>
@@ -176,6 +176,7 @@ function GrnEditor({ existing, onDone }: { existing?: GoodsReceiptDetail; onDone
         <CardContent className="space-y-3">
           {!fromPo && (
             <VariantPicker
+              captureScans
               onSelect={(v) =>
                 lines.append({
                   poLineId: '',

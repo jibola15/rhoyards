@@ -6,7 +6,8 @@ import type { DashboardData, DataEnvelope } from '@rhoyards/shared';
 import { Button, Card, CardContent, CardHeader, CardTitle, Skeleton, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@rhoyards/ui';
 import { useAuth } from '../../auth/AuthProvider';
 import { PageHeader, QueryError } from '../../components/page';
-import { api } from '../../lib/api';
+import { StoreFilter } from '../../components/StoreFilter';
+import { api, qs } from '../../lib/api';
 import { formatDate, formatMoney, formatQty } from '../../lib/format';
 
 /** ₦0, ₦850, ₦12K, ₦1.2M — axis ticks only; values elsewhere are exact. */
@@ -171,16 +172,27 @@ function Attention({ a }: { a: DashboardData['attention'] }) {
 
 export function DashboardPage() {
   const { can } = useAuth();
+  const [store, setStore] = useState('');
   const dash = useQuery({
-    queryKey: ['report', 'dashboard'],
-    queryFn: ({ signal }) => api.get<DataEnvelope<DashboardData>>('/dashboard', { signal }).then((r) => r.data),
+    queryKey: ['report', 'dashboard', store],
+    queryFn: ({ signal }) => api.get<DataEnvelope<DashboardData>>(`/dashboard${qs({ locationId: store || undefined })}`, { signal }).then((r) => r.data),
     refetchInterval: 60_000,
   });
   const d = dash.data;
   const finance = can('reports.financial');
   return (
     <div className="space-y-6">
-      <PageHeader title="Dashboard" description={d ? `As at ${formatDate(d.asOf)}. Money figures come from the ledger and match the financial reports.` : undefined} />
+      <PageHeader
+        title="Dashboard"
+        description={
+          d
+            ? d.stores
+              ? `${d.stores.label} · as at ${formatDate(d.asOf)}. Sales, stock and queues are for ${d.stores.ids.length === 1 ? 'this store' : 'these stores'}; balances are for the whole business.`
+              : `As at ${formatDate(d.asOf)}. Money figures come from the ledger and match the financial reports.`
+            : undefined
+        }
+        actions={<StoreFilter value={store} onChange={setStore} />}
+      />
       {dash.isError && <QueryError error={dash.error} onRetry={() => void dash.refetch()} />}
       {dash.isPending && <Skeleton className="h-96 w-full" />}
       {d && (
@@ -189,7 +201,11 @@ export function DashboardPage() {
             <Stat label="Sales today" value={formatMoney(d.today.salesTotal)} note={`${d.today.salesCount} sale${d.today.salesCount === 1 ? '' : 's'} · ${d.today.onlineOrders} online order${d.today.onlineOrders === 1 ? '' : 's'} placed`} to="/sales" />
             <Stat label="Net sales this month" value={formatMoney(d.monthToDate.netSales)} note={`Since ${formatDate(d.monthToDate.from)}, after returns, without VAT`} {...(finance ? { to: '/reports/profit-and-loss' } : {})} />
             <Stat label="Gross profit this month" value={formatMoney(d.monthToDate.grossProfit)} note={d.monthToDate.grossMargin ? `${d.monthToDate.grossMargin}% margin` : undefined} />
-            <Stat label="Net profit this month" value={formatMoney(d.monthToDate.netProfit)} note="After expenses" />
+            {d.monthToDate.netProfit === null ? (
+              <Stat label="Net profit this month" value="—" note="Whole business only: expenses are not split by store" />
+            ) : (
+              <Stat label="Net profit this month" value={formatMoney(d.monthToDate.netProfit)} note="After expenses" />
+            )}
           </div>
           <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
             <DailySales data={d.dailySales} />
@@ -199,7 +215,7 @@ export function DashboardPage() {
             <TopProducts data={d.topProducts} />
             <Card>
               <CardHeader>
-                <CardTitle>Balances</CardTitle>
+                <CardTitle>{d.stores ? 'Balances (whole business)' : 'Balances'}</CardTitle>
               </CardHeader>
               <CardContent>
                 <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-2 text-sm">

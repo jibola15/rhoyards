@@ -17,9 +17,11 @@ import { requestContext } from '../../lib/audit';
 import { AppError, forbidden } from '../../lib/errors';
 import { withIdempotency } from '../../lib/idempotency';
 import { listEnvelope } from '../../lib/pagination';
+import { getPrisma } from '../../lib/prisma';
 import { parse } from '../../lib/validation';
 import { registry } from '../../openapi/registry';
 import { requireAnyPermission, requirePermission } from '../auth/auth.middleware';
+import { assertLocationAccess, documentStore, locationScope } from '../auth/location-scope';
 import { getSettings } from '../settings/settings.service';
 import { completeSale, getSale, listSales, receiptFor, resumeSale, suspendSale } from './sales.service';
 import { createPaymentMethod, createRegister, listPaymentMethods, listRegisters, updatePaymentMethod, updateRegister } from './setup.service';
@@ -63,6 +65,12 @@ for (const [path, method, summary, body] of docs) {
 
 export const posRouter = Router();
 
+/** A supervisor closes shifts only at their own stores (see auth/location-scope.ts). */
+const shiftStore = documentStore(async (id) => {
+  const s = await getPrisma().cashierShift.findUnique({ where: { id }, select: { register: { select: { locationId: true } } } });
+  return s ? [s.register.locationId] : null;
+});
+
 // ── Till context ─────────────────────────────────────────────────────────
 posRouter.get('/pos/context', ...requirePermission('pos.sell'), async (req, res) => {
   const settings = await getSettings();
@@ -87,16 +95,17 @@ posRouter.post('/pos/shifts/open', ...requirePermission('pos.shift.manage'), asy
 });
 posRouter.get('/pos/shifts', ...requireAny('pos.shift.reconcile', 'sales.view'), async (req, res) => {
   const q = parse(listQuerySchema.extend({ registerId: z.uuid().optional(), cashierId: z.uuid().optional(), status: z.enum(['OPEN', 'CLOSED']).optional() }), req.query);
-  const { data, total } = await listShifts(q);
+  const { data, total } = await listShifts(q, locationScope(req.auth));
   res.json(listEnvelope(data, total, q));
 });
 posRouter.get('/pos/shifts/:id', ...requireAny('pos.shift.manage', 'pos.shift.reconcile', 'sales.view'), async (req, res) => {
   const shift = await getShift(parse(idParams, req.params).id);
+  assertLocationAccess(req.auth, shift.register.locationId);
   const p = req.auth!.permissions;
   if (shift.cashier.id !== req.auth!.user.id && !p.has('pos.shift.reconcile') && !p.has('sales.view')) throw forbidden();
   res.json({ data: shift });
 });
-posRouter.post('/pos/shifts/:id/close', ...requireAny('pos.shift.manage', 'pos.shift.reconcile'), async (req, res) => {
+posRouter.post('/pos/shifts/:id/close', ...requireAny('pos.shift.manage', 'pos.shift.reconcile'), shiftStore, async (req, res) => {
   res.json({ data: await closeShift(parse(idParams, req.params).id, parse(closeShiftSchema, req.body), req.auth!, requestContext(req)) });
 });
 
@@ -118,7 +127,7 @@ posRouter.post('/pos/sales/suspend', ...requirePermission('pos.sell'), async (re
 });
 posRouter.get('/pos/sales/suspended', ...requirePermission('pos.sell'), async (req, res) => {
   const q = parse(listQuerySchema.extend({ registerId: z.uuid().optional() }), req.query);
-  const { data, total } = await listSales({ ...q, status: 'SUSPENDED' });
+  const { data, total } = await listSales({ ...q, status: 'SUSPENDED' }, locationScope(req.auth));
   res.json(listEnvelope(data, total, q));
 });
 posRouter.post('/pos/sales/:id/resume', ...requirePermission('pos.sell'), async (req, res) => {
@@ -126,14 +135,15 @@ posRouter.post('/pos/sales/:id/resume', ...requirePermission('pos.sell'), async 
 });
 
 /** Cashiers without sales.view see only the sales they rang up. */
-function assertCanSeeSale(req: Parameters<RequestHandler>[0], sale: { cashierId: string }) {
+function assertCanSeeSale(req: Parameters<RequestHandler>[0], sale: { cashierId: string; location: { id: string } }) {
   if (!req.auth!.permissions.has('sales.view') && sale.cashierId !== req.auth!.user.id) throw forbidden();
+  assertLocationAccess(req.auth, sale.location.id);
 }
 
 posRouter.get('/sales', ...requireAny('sales.view', 'pos.sell'), async (req, res) => {
   const q = parse(saleListQuerySchema, req.query);
   const scoped = req.auth!.permissions.has('sales.view') ? q : { ...q, cashierId: req.auth!.user.id };
-  const { data, total } = await listSales(scoped);
+  const { data, total } = await listSales(scoped, locationScope(req.auth));
   res.json(listEnvelope(data, total, q));
 });
 posRouter.get('/sales/:id', ...requireAny('sales.view', 'pos.sell'), async (req, res) => {

@@ -130,8 +130,9 @@ export async function getAdjustment(id: string, db: Db = getPrisma()) {
   return toDetail(db, a);
 }
 
-export async function listAdjustments(query: z.infer<typeof documentListQuerySchema>) {
+export async function listAdjustments(query: z.infer<typeof documentListQuerySchema>, scope: string[] | null = null) {
   const where: Prisma.StockAdjustmentWhereInput = {
+    ...(scope ? { AND: [{ locationId: { in: scope } }] } : {}),
     ...(query.status ? { status: query.status as Prisma.EnumDocumentStatusFilter['equals'] } : {}),
     ...(query.locationId ? { locationId: query.locationId } : {}),
     ...(query.q ? { OR: [{ number: { contains: query.q, mode: 'insensitive' } }, { note: { contains: query.q, mode: 'insensitive' } }] } : {}),

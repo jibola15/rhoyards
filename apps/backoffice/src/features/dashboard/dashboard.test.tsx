@@ -9,6 +9,7 @@ import './DashboardPage';
 
 const dashboard: DashboardData = {
   asOf: '2026-10-19',
+  stores: null,
   today: { salesCount: 3, salesTotal: '4300.00', onlineOrders: 1 },
   monthToDate: { from: '2026-10-01', netSales: '3000.00', grossProfit: '1200.00', netProfit: '-18800.00', grossMargin: '40.0' },
   balances: { cash: '1575.00', cashAccounts: [{ id: 'a', code: '1000', name: 'Cash on hand', balance: '1575.00' }], receivables: '575.00', payables: '0.00', inventory: '4200.00' },
@@ -38,6 +39,28 @@ describe('dashboard', () => {
     const rows = screen.getAllByRole('row');
     expect(rows[1]).toHaveTextContent('₦3,000.00'); // newest day first
     expect(screen.getByText('Edge Control Gel — 100 g')).toBeInTheDocument();
+  });
+
+  it('switches to one store: its figures, no net profit, balances marked as business-wide', async () => {
+    const user = userEvent.setup();
+    const store = (id: string, name: string) => ({ id, code: id.toUpperCase(), name, type: 'STORE', isPosEnabled: true, isOnlineFulfilment: false, address: null, phone: null, isActive: true });
+    const asked: string[] = [];
+    mockApi({
+      'GET /auth/me': () => json(200, { data: sessionFor(['dashboard.view', 'reports.financial']) }),
+      'GET /locations': () => json(200, { data: [store('main', 'Main Store'), store('ikeja', 'Ikeja Store')] }),
+      'GET /dashboard': (url) => {
+        asked.push(url);
+        return url.includes('locationId=ikeja')
+          ? json(200, { data: { ...dashboard, stores: { ids: ['ikeja'], label: 'Ikeja Store' }, monthToDate: { ...dashboard.monthToDate, netProfit: null } } })
+          : json(200, { data: dashboard });
+      },
+    });
+    renderApp('/');
+    await user.selectOptions(await screen.findByLabelText('Store'), 'Ikeja Store');
+    expect(await screen.findByText(/Ikeja Store · as at/)).toBeInTheDocument();
+    expect(screen.getByText(/expenses are not split by store/)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Balances (whole business)' })).toBeInTheDocument();
+    expect(asked.at(-1)).toContain('locationId=ikeja');
   });
 
   it('keeps the system status page for staff without the dashboard', async () => {

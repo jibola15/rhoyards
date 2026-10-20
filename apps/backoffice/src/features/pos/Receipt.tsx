@@ -8,7 +8,7 @@ import { useReceipt } from './api';
 
 /** An 80 mm till receipt. Amounts come from the stored sale, never recalculated. */
 export function Receipt({ data }: { data: ReceiptData }) {
-  const { business, sale } = data;
+  const { business, store, sale } = data;
   const row = (label: string, value: string, strong = false) => (
     <div className={strong ? 'flex justify-between font-bold' : 'flex justify-between'}>
       <span>{label}</span>
@@ -19,8 +19,9 @@ export function Receipt({ data }: { data: ReceiptData }) {
     <article aria-label={`Receipt ${sale.number}`} className="mx-auto w-full max-w-[80mm] bg-white p-3 font-mono text-[12px] leading-snug text-black">
       <header className="text-center">
         <h1 className="text-sm font-bold">{business.name}</h1>
-        {business.address && <p className="whitespace-pre-line">{business.address}</p>}
-        {business.phone && <p>Tel: {business.phone}</p>}
+        {store.name && store.name !== business.name && <p>{store.name}</p>}
+        {store.address && <p className="whitespace-pre-line">{store.address}</p>}
+        {store.phone && <p>Tel: {store.phone}</p>}
         {business.vatRegistered && business.taxId && <p>TIN: {business.taxId}</p>}
         {data.header && <p className="mt-1 whitespace-pre-line">{data.header}</p>}
       </header>

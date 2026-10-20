@@ -34,6 +34,7 @@ import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { PageHeader, QueryError } from '../../components/page';
 import { StatusBadge } from '../../components/StatusBadge';
 import { api } from '../../lib/api';
+import { barcodeFieldKeyDown } from '../../lib/scanner';
 import { formatMoney, formatQty } from '../../lib/format';
 import { applyServerErrors } from '../../lib/forms';
 import { catalogKeys, categoryOptions, useBrands, useCategories, useProduct, useTaxRates, useUnits } from './api';
@@ -159,7 +160,7 @@ function NewProductForm() {
   const [formError, setFormError] = useState<string | null>(null);
   const defaultTax = taxRates.data?.find((t) => t.code === 'VAT')?.id ?? '';
   const defaultUnit = units.data?.find((u) => u.code === 'PC')?.id ?? '';
-  const { register, control, handleSubmit, setError, formState } = useForm<CreateValues>({
+  const { register, control, handleSubmit, setError, setValue, formState } = useForm<CreateValues>({
     resolver: zodResolver(createSchema),
     values: {
       name: '',
@@ -226,7 +227,11 @@ function NewProductForm() {
                 <Input inputMode="decimal" {...register(`variants.${i}.reorderLevel`)} />
               </Field>
               <Field id={`nv-${i}-barcode`} label="Barcode(s)" error={ve?.[i]?.barcodesText?.message} className="sm:col-span-5">
-                <Input className="font-mono" {...register(`variants.${i}.barcodesText`)} />
+                <Input
+                  className="font-mono"
+                  {...register(`variants.${i}.barcodesText`)}
+                  onKeyDown={(e) => barcodeFieldKeyDown(e, (v) => setValue(`variants.${i}.barcodesText`, v, { shouldDirty: true }))}
+                />
               </Field>
               <div className="flex items-end">
                 <Button variant="ghost" size="sm" disabled={variants.fields.length === 1} onClick={() => variants.remove(i)}>

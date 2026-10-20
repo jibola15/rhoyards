@@ -91,7 +91,7 @@ function LocationForm({ location, onDone }: { location?: LocationSummary | undef
           <Checkbox {...register('isPosEnabled')} /> Point of sale runs here
         </label>
         <label className="flex items-center gap-2">
-          <Checkbox {...register('isOnlineFulfilment')} /> Fulfils online orders
+          <Checkbox {...register('isOnlineFulfilment')} /> Fulfils online orders (one store at a time: the online shop sells its stock)
         </label>
         <label className="flex items-center gap-2">
           <Checkbox {...register('isActive')} /> Active

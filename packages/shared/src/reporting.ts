@@ -6,7 +6,11 @@ import { dateInput } from './inputs';
 export interface DashboardData {
   asOf: string;
   today: { salesCount: number; salesTotal: string; onlineOrders: number };
-  monthToDate: { from: string; netSales: string; grossProfit: string; netProfit: string; grossMargin: string | null };
+  /** The stores the figures are for (one chosen store, or the person's own stores); null for the whole business. */
+  stores: { ids: string[]; label: string } | null;
+  /** For one store, net profit is null: expenses are not recorded per store. */
+  monthToDate: { from: string; netSales: string; grossProfit: string; netProfit: string | null; grossMargin: string | null };
+  /** Always the whole business (one set of bank accounts and books). */
   balances: {
     cash: string;
     cashAccounts: { id: string; code: string; name: string; balance: string }[];
@@ -45,9 +49,14 @@ export const SALES_GROUP_LABELS: Record<SalesGroup, string> = {
   location: 'Location',
 };
 
-export const salesReportQuerySchema = z.object({ ...range, groupBy: z.enum(SALES_GROUPS).default('day') });
-export const periodReportQuerySchema = z.object(range);
+/** Optional: one store's figures (staff assigned to stores see only theirs). */
+const store = { locationId: z.uuid().optional() };
+
+export const dashboardQuerySchema = z.object(store);
+export const salesReportQuerySchema = z.object({ ...range, ...store, groupBy: z.enum(SALES_GROUPS).default('day') });
+export const periodReportQuerySchema = z.object({ ...range, ...store });
 export const stockReportQuerySchema = z.object({
+  ...store,
   /** Sales over this many days set the rate of sale (days of cover). */
   days: z.coerce.number().int().min(7).max(365).default(90),
   status: z.enum(['all', 'low', 'out', 'slow']).default('all'),

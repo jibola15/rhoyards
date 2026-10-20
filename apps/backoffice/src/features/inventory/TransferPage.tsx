@@ -34,7 +34,7 @@ import { VariantPicker } from '../../components/VariantPicker';
 import { api } from '../../lib/api';
 import { formatDate, formatDateTime, formatQty } from '../../lib/format';
 import { applyServerErrors } from '../../lib/forms';
-import { useLocations } from '../users/api';
+import { useStoreChoices } from '../../lib/stores';
 import { STOCK_KEYS, useTransfer } from './api';
 
 const formSchema = z
@@ -52,9 +52,10 @@ type FormValues = z.infer<typeof formSchema>;
 function TransferEditor({ existing, onSaved, onCancel }: { existing?: TransferDetail; onSaved?: (t: TransferDetail) => void; onCancel: () => void }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const locations = useLocations();
+  // Stock is sent from the person's own store, to any store.
+  const stores = useStoreChoices(existing?.fromLocation.id);
   const [formError, setFormError] = useState<string | null>(null);
-  const active = locations.data?.filter((l) => l.isActive) ?? [];
+  const active = stores.all;
   const { register, control, handleSubmit, setError, formState } = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: existing
@@ -100,7 +101,7 @@ function TransferEditor({ existing, onSaved, onCancel }: { existing?: TransferDe
           <Field id="tr-from" label="From" error={formState.errors.fromLocationId?.message}>
             <Select {...register('fromLocationId')}>
               <option value="">Choose…</option>
-              {active.map((l) => (
+              {stores.options.map((l) => (
                 <option key={l.id} value={l.id}>
                   {l.name}
                 </option>
@@ -128,6 +129,7 @@ function TransferEditor({ existing, onSaved, onCancel }: { existing?: TransferDe
         </CardHeader>
         <CardContent className="space-y-3">
           <VariantPicker
+            captureScans
             locationId={fromLocationId || undefined}
             onSelect={(v) => lines.append({ variantId: v.id, label: `${v.productName} — ${v.name}`, sku: v.sku, onHand: v.qtyAvailable, qty: '' })}
           />

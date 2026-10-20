@@ -86,8 +86,9 @@ export async function getGoodsReceipt(id: string, db: Db = getPrisma()) {
   return toDetail(g);
 }
 
-export async function listGoodsReceipts(query: z.infer<typeof purchaseListQuerySchema>) {
+export async function listGoodsReceipts(query: z.infer<typeof purchaseListQuerySchema>, scope: string[] | null = null) {
   const where: Prisma.GoodsReceiptWhereInput = {
+    ...(scope ? { locationId: { in: scope } } : {}),
     ...(query.supplierId ? { supplierId: query.supplierId } : {}),
     ...(query.status ? { status: query.status as DocumentStatus } : {}),
     ...(query.q

@@ -33,7 +33,7 @@ import { api } from '../../lib/api';
 import { formatDate, formatDateTime, formatMoney, formatQty } from '../../lib/format';
 import { applyServerErrors } from '../../lib/forms';
 import { useTaxRates } from '../catalog/api';
-import { useLocations } from '../users/api';
+import { useStoreChoices } from '../../lib/stores';
 import { today, useDocument, useRefreshPurchasing, useSupplierOptions } from './api';
 import { DocumentShell, InfoGrid, TotalsBox } from './shared';
 import { lineTotals } from './totals';
@@ -64,10 +64,10 @@ type FormValues = z.infer<typeof formSchema>;
 
 function PoEditor({ existing, onDone }: { existing?: PurchaseOrderDetail; onDone: (po: PurchaseOrderDetail) => void }) {
   const suppliers = useSupplierOptions();
-  const locations = useLocations();
+  const stores = useStoreChoices(existing?.location.id);
   const taxRates = useTaxRates();
   const [formError, setFormError] = useState<string | null>(null);
-  const defaultLocation = locations.data?.find((l) => l.isActive && l.isPosEnabled)?.id ?? '';
+  const defaultLocation = stores.defaultId;
   const { register, control, handleSubmit, setError, formState } = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     values: existing
@@ -134,7 +134,7 @@ function PoEditor({ existing, onDone }: { existing?: PurchaseOrderDetail; onDone
           <Field id="po-location" label="Deliver to" error={formState.errors.locationId?.message}>
             <Select {...register('locationId')}>
               <option value="">Choose…</option>
-              {locations.data?.filter((l) => l.isActive).map((l) => (
+              {stores.options.map((l) => (
                 <option key={l.id} value={l.id}>
                   {l.name}
                 </option>

@@ -19,7 +19,7 @@ import { VariantPicker } from '../../components/VariantPicker';
 import { api } from '../../lib/api';
 import { formatQty } from '../../lib/format';
 import { applyServerErrors } from '../../lib/forms';
-import { useLocations } from '../users/api';
+import { useStoreChoices } from '../../lib/stores';
 
 const ONLY_IN: AdjustmentReason[] = ['OPENING_STOCK'];
 const ONLY_OUT: AdjustmentReason[] = ['DAMAGE', 'EXPIRY', 'THEFT'];
@@ -110,9 +110,9 @@ export function AdjustmentEditor({
 }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const locations = useLocations();
+  const stores = useStoreChoices(existing?.location.id);
   const [formError, setFormError] = useState<string | null>(null);
-  const defaultLocation = locations.data?.find((l) => l.isActive && l.isPosEnabled)?.id ?? locations.data?.find((l) => l.isActive)?.id ?? '';
+  const defaultLocation = stores.defaultId;
 
   const { register, control, handleSubmit, setValue, setError, formState } = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -149,7 +149,7 @@ export function AdjustmentEditor({
           <Field id="adj-location" label="Location" error={formState.errors.locationId?.message}>
             <Select {...register('locationId')}>
               <option value="">Choose…</option>
-              {locations.data?.filter((l) => l.isActive).map((l) => (
+              {stores.options.map((l) => (
                 <option key={l.id} value={l.id}>
                   {l.name}
                 </option>
@@ -184,6 +184,7 @@ export function AdjustmentEditor({
         </CardHeader>
         <CardContent className="space-y-4">
           <VariantPicker
+            captureScans
             locationId={locationId || undefined}
             onSelect={(v) =>
               lines.append({

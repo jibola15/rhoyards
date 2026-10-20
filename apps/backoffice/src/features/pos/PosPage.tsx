@@ -184,6 +184,7 @@ function Till({ ctx, shift }: { ctx: PosContext; shift: ShiftSummary }) {
         <Card>
           <CardContent className="space-y-4 pt-5">
             <VariantPicker
+              captureScans
               autoFocus
               label="Scan or search a product"
               placeholder="Scan a barcode, or type a name or SKU"

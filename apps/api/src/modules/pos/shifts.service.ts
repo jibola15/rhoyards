@@ -74,8 +74,12 @@ export async function myOpenShift(userId: string, db: Db = getPrisma()) {
   return s ? toSummary(db, s) : null;
 }
 
-export async function listShifts(query: { page: number; pageSize: number; q?: string | undefined; registerId?: string | undefined; cashierId?: string | undefined; status?: 'OPEN' | 'CLOSED' | undefined }) {
+export async function listShifts(
+  query: { page: number; pageSize: number; q?: string | undefined; registerId?: string | undefined; cashierId?: string | undefined; status?: 'OPEN' | 'CLOSED' | undefined },
+  scope: string[] | null = null,
+) {
   const where: Prisma.CashierShiftWhereInput = {
+    ...(scope ? { register: { locationId: { in: scope } } } : {}),
     ...(query.q ? { OR: [{ number: { contains: query.q, mode: 'insensitive' } }, { cashier: { fullName: { contains: query.q, mode: 'insensitive' } } }] } : {}),
     ...(query.registerId ? { registerId: query.registerId } : {}),
     ...(query.cashierId ? { cashierId: query.cashierId } : {}),

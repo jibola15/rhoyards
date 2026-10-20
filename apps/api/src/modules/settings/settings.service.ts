@@ -136,6 +136,14 @@ export async function listLocations(): Promise<LocationSummary[]> {
   return rows.map(toLocation);
 }
 
+/**
+ * The online shop sells the stock of one store. Choosing a new one moves the shop there; orders already placed keep
+ * the store they reserved stock at.
+ */
+async function makeOnlyOnlineStore(tx: Prisma.TransactionClient, id: string) {
+  await tx.location.updateMany({ where: { id: { not: id }, isOnlineFulfilment: true }, data: { isOnlineFulfilment: false } });
+}
+
 export async function createLocation(input: z.infer<typeof locationInputSchema>, ctx: RequestContext) {
   return transaction(async (tx) => {
     if (await tx.location.findUnique({ where: { code: input.code } })) {
@@ -144,6 +152,7 @@ export async function createLocation(input: z.infer<typeof locationInputSchema>,
     const created = await tx.location.create({
       data: { ...input, address: input.address ?? null, phone: input.phone ?? null },
     });
+    if (created.isOnlineFulfilment) await makeOnlyOnlineStore(tx, created.id);
     const summary = toLocation(created);
     await writeAudit(tx, ctx, { action: 'location.created', entityType: 'location', entityId: created.id, after: summary });
     return summary;
@@ -159,6 +168,7 @@ export async function updateLocation(id: string, input: z.infer<typeof locationU
       if (otherActive === 0) throw businessRule('At least one active location is required');
     }
     const updated = await tx.location.update({ where: { id }, data: input });
+    if (input.isOnlineFulfilment) await makeOnlyOnlineStore(tx, id);
     const after = toLocation(updated);
     await writeAudit(tx, ctx, { action: 'location.updated', entityType: 'location', entityId: id, before: toLocation(existing), after });
     return after;

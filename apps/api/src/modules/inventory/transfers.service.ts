@@ -59,8 +59,10 @@ export async function getTransfer(id: string, db: Db = getPrisma()) {
   return toDetail(t);
 }
 
-export async function listTransfers(query: z.infer<typeof documentListQuerySchema>) {
+export async function listTransfers(query: z.infer<typeof documentListQuerySchema>, scope: string[] | null = null) {
   const where: Prisma.StockTransferWhereInput = {
+    // A transfer belongs to both its stores.
+    ...(scope ? { AND: [{ OR: [{ fromLocationId: { in: scope } }, { toLocationId: { in: scope } }] }] } : {}),
     ...(query.status ? { status: query.status as Prisma.EnumTransferStatusFilter['equals'] } : {}),
     ...(query.locationId ? { OR: [{ fromLocationId: query.locationId }, { toLocationId: query.locationId }] } : {}),
     ...(query.q ? { number: { contains: query.q, mode: 'insensitive' } } : {}),

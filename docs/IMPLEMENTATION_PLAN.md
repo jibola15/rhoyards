@@ -67,6 +67,7 @@ Date: 2026-10-18
 | 2026-10-27 | Staff sign in with email **or** an optional username (lower case, no `@`) | Quicker at the till; never ambiguous |
 | 2026-10-27 | **Two-step sign-in required for all staff**: authenticator app (TOTP) + 10 one-time backup codes; set up at first sign-in; no SMS | Phishing-resistant enough for a small business, free, works offline; no phone-number dependency |
 | 2026-10-27 | Self-service password reset by email for staff and shoppers (30-minute single-use link, token in the URL fragment); SMTP via nodemailer, files in an outbox folder in development | Any email provider; nothing leaks through logs or Referer |
+| 2026-10-28 | **Several stores** (supersedes "one physical store"): staff assigned to stores work only in those (documents, sales, shifts, stock moves); Owners and unassigned staff work in all; stock levels visible everywhere; reports and dashboard filter by store; receipts carry the store's address; one store at a time fulfils online orders | Branches run independently while head office sees everything |
 | 2026-10-27 | Several API instances supported: rate limits in PostgreSQL, background jobs once per interval under an advisory lock (`scheduled_jobs`) | Availability and scaling without Redis or a separate scheduler |
 
 ---

@@ -18,6 +18,7 @@ import {
   toast,
 } from '@rhoyards/ui';
 import { api } from '../../lib/api';
+import { barcodeFieldKeyDown } from '../../lib/scanner';
 import { applyServerErrors } from '../../lib/forms';
 import { catalogKeys, useUnits } from './api';
 import { emptyVariant, variantFormSchema, variantPayload, variantToForm, type VariantFormValues } from './variant-form';
@@ -28,7 +29,7 @@ function VariantForm({ productId, variant, onDone }: { productId: string; varian
   const queryClient = useQueryClient();
   const units = useUnits();
   const [formError, setFormError] = useState<string | null>(null);
-  const { register, handleSubmit, setError, formState } = useForm<VariantFormValues>({
+  const { register, handleSubmit, setError, setValue, formState } = useForm<VariantFormValues>({
     resolver: zodResolver(variantFormSchema),
     defaultValues: variant ? variantToForm(variant) : emptyVariant(),
   });
@@ -116,7 +117,11 @@ function VariantForm({ productId, variant, onDone }: { productId: string; varian
         </Field>
       </div>
       <Field id="v-barcodes" label="Barcodes" description="Separate several with commas. The first is the primary barcode." error={e.barcodesText?.message}>
-        <Input className="font-mono" {...register('barcodesText')} />
+        <Input
+          className="font-mono"
+          {...register('barcodesText')}
+          onKeyDown={(e) => barcodeFieldKeyDown(e, (v) => setValue('barcodesText', v, { shouldDirty: true }))}
+        />
       </Field>
       <DialogFooter>
         <Button variant="outline" onClick={onDone}>

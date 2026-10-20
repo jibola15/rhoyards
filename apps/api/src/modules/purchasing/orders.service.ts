@@ -80,8 +80,9 @@ export async function getPurchaseOrder(id: string, db: Db = getPrisma()) {
   return toDetail(p);
 }
 
-export async function listPurchaseOrders(query: z.infer<typeof purchaseListQuerySchema>) {
+export async function listPurchaseOrders(query: z.infer<typeof purchaseListQuerySchema>, scope: string[] | null = null) {
   const where: Prisma.PurchaseOrderWhereInput = {
+    ...(scope ? { locationId: { in: scope } } : {}),
     ...(query.supplierId ? { supplierId: query.supplierId } : {}),
     ...(query.status ? { status: query.status as PurchaseOrderStatus } : {}),
     ...(query.q ? { OR: [{ number: { contains: query.q, mode: 'insensitive' } }, { supplier: { name: { contains: query.q, mode: 'insensitive' } } }] } : {}),

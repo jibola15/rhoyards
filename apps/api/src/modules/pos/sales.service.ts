@@ -120,8 +120,12 @@ export async function getSale(id: string, db: Db = getPrisma()) {
   return toDetail(s);
 }
 
-export async function listSales(query: z.infer<typeof saleListQuerySchema> & { status?: 'COMPLETED' | 'SUSPENDED'; registerId?: string | undefined }) {
+export async function listSales(
+  query: z.infer<typeof saleListQuerySchema> & { status?: 'COMPLETED' | 'SUSPENDED'; registerId?: string | undefined },
+  scope: string[] | null = null,
+) {
   const where: Prisma.SaleWhereInput = {
+    ...(scope ? { AND: [{ locationId: { in: scope } }] } : {}),
     status: query.status ?? 'COMPLETED',
     ...(query.shiftId ? { shiftId: query.shiftId } : {}),
     ...(query.customerId ? { customerId: query.customerId } : {}),
@@ -506,7 +510,10 @@ export async function resumeSale(id: string, actor: AuthContext, reqCtx: Request
 export async function receiptFor(id: string): Promise<ReceiptData> {
   const sale = await getSale(id);
   if (sale.status !== 'COMPLETED') throw businessRule('Only completed sales have receipts');
-  const settings = await getSettings();
+  const [settings, location] = await Promise.all([
+    getSettings(),
+    getPrisma().location.findUniqueOrThrow({ where: { id: sale.location.id }, select: { name: true, address: true, phone: true } }),
+  ]);
   const byRate = new Map<string, { net: Decimal; tax: Decimal }>();
   for (const i of sale.items) {
     const r = byRate.get(i.taxRate) ?? { net: ZERO, tax: ZERO };
@@ -514,6 +521,7 @@ export async function receiptFor(id: string): Promise<ReceiptData> {
   }
   return {
     business: settings.business,
+    store: { name: location.name, address: location.address || settings.business.address, phone: location.phone || settings.business.phone },
     header: settings.receipt.header,
     footer: settings.receipt.footer,
     currency: settings.currency,

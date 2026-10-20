@@ -215,6 +215,8 @@ export interface SaleDetail extends SaleSummary {
 
 export interface ReceiptData {
   business: { name: string; address: string; phone: string; email: string; taxId: string; vatRegistered: boolean };
+  /** The store the sale was made at; its address and phone, when set, replace the business's on the receipt. */
+  store: { name: string; address: string; phone: string };
   header: string;
   footer: string;
   currency: { code: string; symbol: string };

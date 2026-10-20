@@ -71,8 +71,9 @@ export async function getPurchaseReturn(id: string, db: Db = getPrisma()) {
   return toDetail(r);
 }
 
-export async function listPurchaseReturns(query: z.infer<typeof purchaseListQuerySchema>) {
+export async function listPurchaseReturns(query: z.infer<typeof purchaseListQuerySchema>, scope: string[] | null = null) {
   const where: Prisma.PurchaseReturnWhereInput = {
+    ...(scope ? { locationId: { in: scope } } : {}),
     ...(query.supplierId ? { supplierId: query.supplierId } : {}),
     ...(query.status ? { status: query.status as DocumentStatus } : {}),
     ...(query.q ? { OR: [{ number: { contains: query.q, mode: 'insensitive' } }, { supplier: { name: { contains: query.q, mode: 'insensitive' } } }] } : {}),

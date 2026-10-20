@@ -14,6 +14,7 @@ import {
 } from '@rhoyards/shared';
 import { buttonVariants, Card, CardContent, Field, Input, Select, Skeleton, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@rhoyards/ui';
 import { EmptyState, PageHeader, QueryError } from '../../components/page';
+import { StoreFilter } from '../../components/StoreFilter';
 import { StatusBadge } from '../../components/StatusBadge';
 import { api, qs } from '../../lib/api';
 import { formatMoney, formatQty } from '../../lib/format';
@@ -68,6 +69,16 @@ function useRange() {
   return { from, to, filters };
 }
 
+/** One store's figures, or all (the API limits staff assigned to stores to their own). */
+function useStore(anyStore = false) {
+  const [store, setStore] = useState('');
+  return {
+    storeParam: (store ? { locationId: store } : {}) as Record<string, string>,
+    storeFilter: <StoreFilter value={store} onChange={setStore} anyStore={anyStore} />,
+    store,
+  };
+}
+
 const Num = ({ children, strong }: { children: ReactNode; strong?: boolean }) => <TableCell className={`text-right tabular-nums ${strong ? 'font-semibold' : ''}`}>{children}</TableCell>;
 
 // ── Sales ────────────────────────────────────────────────────────────────
@@ -75,7 +86,8 @@ const Num = ({ children, strong }: { children: ReactNode; strong?: boolean }) =>
 export function SalesReportPage() {
   const { from, to, filters } = useRange();
   const [groupBy, setGroupBy] = useState<SalesGroup>('day');
-  const params = { from, to, groupBy };
+  const { storeParam, storeFilter } = useStore();
+  const params = { from, to, groupBy, ...storeParam };
   const report = useReport<SalesReport>('sales', params);
   const r = report.data;
   return (
@@ -87,6 +99,7 @@ export function SalesReportPage() {
       filters={
         <>
           {filters}
+          {storeFilter}
           <Field id="r-group" label="By" className="w-44">
             <Select value={groupBy} onChange={(e) => setGroupBy(e.target.value as SalesGroup)}>
               {SALES_GROUPS.map((g) => (
@@ -153,11 +166,27 @@ export function SalesReportPage() {
 
 export function PaymentsReportPage() {
   const { from, to, filters } = useRange();
-  const params = { from, to };
+  const { storeParam, storeFilter, store } = useStore();
+  const params = { from, to, ...storeParam };
   const report = useReport<PaymentsReport>('payments', params);
   const r = report.data;
   return (
-    <Shell title="Payments by method" description="Money taken at sales and from customers paying their accounts, less refunds — what each till, terminal and account should show." csv={<CsvLink path="payments" params={params} />} query={report} filters={filters}>
+    <Shell
+      title="Payments by method"
+      description={
+        store
+          ? 'Money taken at this store’s sales, less its refunds. Customers paying their accounts are not counted against a store.'
+          : 'Money taken at sales and from customers paying their accounts, less refunds — what each till, terminal and account should show.'
+      }
+      csv={<CsvLink path="payments" params={params} />}
+      query={report}
+      filters={
+        <>
+          {filters}
+          {storeFilter}
+        </>
+      }
+    >
       {r &&
         (r.rows.length === 0 ? (
           <EmptyState title="No payments in these dates" />
@@ -255,17 +284,19 @@ export function StockReportPage() {
   const [params, setParams] = useSearchParams();
   const status = (params.get('status') ?? 'all') as keyof typeof STOCK_LABEL;
   const [days, setDays] = useState(90);
-  const query = { status, days };
+  const { storeParam, storeFilter } = useStore(true);
+  const query = { status, days, ...storeParam };
   const report = useReport<StockReport>('stock', query);
   const r = report.data;
   return (
     <Shell
       title="Stock report"
-      description="Stock on hand at cost with the rate of sale. Days of cover = stock ÷ average daily sales over the period."
+      description="Stock on hand at cost with the rate of sale. Days of cover = stock ÷ average daily sales over the period. For one store, the reorder level applies to that store."
       csv={<CsvLink path="stock" params={query} />}
       query={report}
       filters={
         <>
+          {storeFilter}
           <Field id="r-status" label="Show" className="w-64">
             <Select value={status} onChange={(e) => setParams(e.target.value === 'all' ? {} : { status: e.target.value }, { replace: true })}>
               {Object.entries(STOCK_LABEL).map(([k, label]) => (

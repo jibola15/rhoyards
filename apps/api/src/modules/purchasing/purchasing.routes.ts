@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, type RequestHandler } from 'express';
 import { z } from 'zod';
 import {
   dateInput,
@@ -12,9 +12,11 @@ import {
 import { requestContext } from '../../lib/audit';
 import { withIdempotency } from '../../lib/idempotency';
 import { listEnvelope } from '../../lib/pagination';
+import { getPrisma } from '../../lib/prisma';
 import { parse } from '../../lib/validation';
 import { registry } from '../../openapi/registry';
 import { requireAnyPermission, requirePermission } from '../auth/auth.middleware';
+import { assertLocationAccess, bodyStore, documentStore, locationScope } from '../auth/location-scope';
 import {
   cancelSupplierInvoice,
   createSupplierInvoice,
@@ -101,33 +103,56 @@ for (const [path, method, summary, body] of docs) {
   });
 }
 
+// Store access (see auth/location-scope.ts): purchasing documents belong to the store that receives the goods.
+const poStore = documentStore(async (id) => {
+  const d = await getPrisma().purchaseOrder.findUnique({ where: { id }, select: { locationId: true } });
+  return d ? [d.locationId] : null;
+});
+const grnStore = documentStore(async (id) => {
+  const d = await getPrisma().goodsReceipt.findUnique({ where: { id }, select: { locationId: true } });
+  return d ? [d.locationId] : null;
+});
+const returnStore = documentStore(async (id) => {
+  const d = await getPrisma().purchaseReturn.findUnique({ where: { id }, select: { locationId: true } });
+  return d ? [d.locationId] : null;
+});
+/** A purchase return is made from a goods receipt, at that receipt's store. */
+const returnReceiptStore: RequestHandler = async (req, _res, next) => {
+  const receiptId = (req.body as { receiptId?: unknown } | undefined)?.receiptId;
+  if (locationScope(req.auth) && typeof receiptId === 'string' && /^[0-9a-f-]{36}$/i.test(receiptId)) {
+    const grn = await getPrisma().goodsReceipt.findUnique({ where: { id: receiptId }, select: { locationId: true } });
+    if (grn) assertLocationAccess(req.auth, grn.locationId);
+  }
+  next();
+};
+
 export const purchasingRouter = Router();
 
 // Purchase orders
 purchasingRouter.get('/purchase-orders', ...view, async (req, res) => {
   const q = parse(poListQuery, req.query);
-  const { data, total } = await listPurchaseOrders(q);
+  const { data, total } = await listPurchaseOrders(q, locationScope(req.auth));
   res.json(listEnvelope(data, total, q));
 });
-purchasingRouter.post('/purchase-orders', ...manage, async (req, res) => {
+purchasingRouter.post('/purchase-orders', ...manage, bodyStore((b) => b.locationId), async (req, res) => {
   res.status(201).json({ data: await createPurchaseOrder(parse(poInputSchema, req.body), requestContext(req)) });
 });
-purchasingRouter.get('/purchase-orders/:id', ...view, async (req, res) => {
+purchasingRouter.get('/purchase-orders/:id', ...view, poStore, async (req, res) => {
   res.json({ data: await getPurchaseOrder(parse(idParams, req.params).id) });
 });
-purchasingRouter.put('/purchase-orders/:id', ...manage, async (req, res) => {
+purchasingRouter.put('/purchase-orders/:id', ...manage, poStore, bodyStore((b) => b.locationId), async (req, res) => {
   res.json({ data: await updatePurchaseOrder(parse(idParams, req.params).id, parse(poInputSchema, req.body), requestContext(req)) });
 });
-purchasingRouter.post('/purchase-orders/:id/approve', ...requirePermission('purchasing.approve'), async (req, res) => {
+purchasingRouter.post('/purchase-orders/:id/approve', ...requirePermission('purchasing.approve'), poStore, async (req, res) => {
   res.json({ data: await approvePurchaseOrder(parse(idParams, req.params).id, requestContext(req)) });
 });
-purchasingRouter.post('/purchase-orders/:id/cancel', ...manage, async (req, res) => {
+purchasingRouter.post('/purchase-orders/:id/cancel', ...manage, poStore, async (req, res) => {
   res.json({ data: await endPurchaseOrder(parse(idParams, req.params).id, 'cancel', requestContext(req)) });
 });
-purchasingRouter.post('/purchase-orders/:id/close', ...manage, async (req, res) => {
+purchasingRouter.post('/purchase-orders/:id/close', ...manage, poStore, async (req, res) => {
   res.json({ data: await endPurchaseOrder(parse(idParams, req.params).id, 'close', requestContext(req)) });
 });
-purchasingRouter.post('/purchase-orders/:id/receipts', ...manage, async (req, res) => {
+purchasingRouter.post('/purchase-orders/:id/receipts', ...manage, poStore, async (req, res) => {
   const { receivedDate } = parse(z.object({ receivedDate: dateInput.default(new Date().toISOString().slice(0, 10)) }), req.body ?? {});
   res.status(201).json({ data: await receiveFromPurchaseOrder(parse(idParams, req.params).id, receivedDate, requestContext(req)) });
 });
@@ -135,22 +160,22 @@ purchasingRouter.post('/purchase-orders/:id/receipts', ...manage, async (req, re
 // Goods receipts
 purchasingRouter.get('/goods-receipts', ...view, async (req, res) => {
   const q = parse(docListQuery, req.query);
-  const { data, total } = await listGoodsReceipts(q);
+  const { data, total } = await listGoodsReceipts(q, locationScope(req.auth));
   res.json(listEnvelope(data, total, q));
 });
-purchasingRouter.post('/goods-receipts', ...manage, async (req, res) => {
+purchasingRouter.post('/goods-receipts', ...manage, bodyStore((b) => b.locationId), async (req, res) => {
   res.status(201).json({ data: await createGoodsReceipt(parse(grnInputSchema, req.body), requestContext(req)) });
 });
-purchasingRouter.get('/goods-receipts/:id', ...view, async (req, res) => {
+purchasingRouter.get('/goods-receipts/:id', ...view, grnStore, async (req, res) => {
   res.json({ data: await getGoodsReceipt(parse(idParams, req.params).id) });
 });
-purchasingRouter.put('/goods-receipts/:id', ...manage, async (req, res) => {
+purchasingRouter.put('/goods-receipts/:id', ...manage, grnStore, bodyStore((b) => b.locationId), async (req, res) => {
   res.json({ data: await updateGoodsReceipt(parse(idParams, req.params).id, parse(grnInputSchema, req.body), requestContext(req)) });
 });
-purchasingRouter.post('/goods-receipts/:id/post', ...manage, async (req, res) => {
+purchasingRouter.post('/goods-receipts/:id/post', ...manage, grnStore, async (req, res) => {
   res.json({ data: await postGoodsReceipt(parse(idParams, req.params).id, requestContext(req)) });
 });
-purchasingRouter.post('/goods-receipts/:id/cancel', ...manage, async (req, res) => {
+purchasingRouter.post('/goods-receipts/:id/cancel', ...manage, grnStore, async (req, res) => {
   res.json({ data: await cancelGoodsReceipt(parse(idParams, req.params).id, requestContext(req)) });
 });
 
@@ -203,22 +228,22 @@ purchasingRouter.get('/supplier-payments/:id', ...requireAny('purchasing.view', 
 // Purchase returns
 purchasingRouter.get('/purchase-returns', ...view, async (req, res) => {
   const q = parse(docListQuery, req.query);
-  const { data, total } = await listPurchaseReturns(q);
+  const { data, total } = await listPurchaseReturns(q, locationScope(req.auth));
   res.json(listEnvelope(data, total, q));
 });
-purchasingRouter.post('/purchase-returns', ...manage, async (req, res) => {
+purchasingRouter.post('/purchase-returns', ...manage, returnReceiptStore, async (req, res) => {
   res.status(201).json({ data: await createPurchaseReturn(parse(purchaseReturnInputSchema, req.body), requestContext(req)) });
 });
-purchasingRouter.get('/purchase-returns/:id', ...view, async (req, res) => {
+purchasingRouter.get('/purchase-returns/:id', ...view, returnStore, async (req, res) => {
   res.json({ data: await getPurchaseReturn(parse(idParams, req.params).id) });
 });
-purchasingRouter.put('/purchase-returns/:id', ...manage, async (req, res) => {
+purchasingRouter.put('/purchase-returns/:id', ...manage, returnStore, returnReceiptStore, async (req, res) => {
   res.json({ data: await updatePurchaseReturn(parse(idParams, req.params).id, parse(purchaseReturnInputSchema, req.body), requestContext(req)) });
 });
-purchasingRouter.post('/purchase-returns/:id/post', ...manage, async (req, res) => {
+purchasingRouter.post('/purchase-returns/:id/post', ...manage, returnStore, async (req, res) => {
   res.json({ data: await postPurchaseReturn(parse(idParams, req.params).id, requestContext(req)) });
 });
-purchasingRouter.post('/purchase-returns/:id/cancel', ...manage, async (req, res) => {
+purchasingRouter.post('/purchase-returns/:id/cancel', ...manage, returnStore, async (req, res) => {
   res.json({ data: await cancelPurchaseReturn(parse(idParams, req.params).id, requestContext(req)) });
 });
 

@@ -25,6 +25,10 @@ const todayIso = () => isoDate(businessDate());
 const fmt = (d: Decimal) => d.toFixed(2);
 const pct = (part: Decimal, whole: Decimal) => (whole.isZero() ? null : part.dividedBy(whole).times(100).toFixed(1));
 
+/** SQL condition limiting rows to some stores (`col` is a trusted column reference); nothing for all stores. */
+export const storeSql = (col: Prisma.Sql, stores: string[] | null | undefined) =>
+  stores ? Prisma.sql`AND ${col} = ANY(${stores}::uuid[])` : Prisma.empty;
+
 /** A business-date range as [start, end) instants; defaults to the month to date. */
 export function period(from?: string, to?: string) {
   const end = to ?? todayIso();
@@ -77,9 +81,13 @@ interface SalesRowRaw {
   cost: Prisma.Decimal;
 }
 
-export async function salesReport(q: { from?: string | undefined; to?: string | undefined; groupBy: SalesGroup }, db: Db = getPrisma()): Promise<SalesReport> {
+export async function salesReport(
+  q: { from?: string | undefined; to?: string | undefined; groupBy: SalesGroup; stores?: string[] | null },
+  db: Db = getPrisma(),
+): Promise<SalesReport> {
   const p = period(q.from, q.to);
   const g = groups()[q.groupBy];
+  const inStores = storeSql(Prisma.sql`s.location_id`, q.stores);
   // Sold lines count when the sale completed; returns count (negatively) when they were refunded.
   // A returned item's cost leaves cost of sales only when it went back to stock.
   const raw = await db.$queryRaw<SalesRowRaw[]>`
@@ -87,7 +95,7 @@ export async function salesReport(q: { from?: string | undefined; to?: string | 
       SELECT s.id AS sale_id, s.completed_at AS at, s.channel, s.location_id, s.cashier_id, si.variant_id,
              si.qty AS qty_sold, 0::numeric AS qty_returned, si.net_amount AS net, si.tax_amount AS tax, si.cost_amount AS cost
       FROM sale_items si JOIN sales s ON s.id = si.sale_id
-      WHERE s.status = 'COMPLETED' AND s.completed_at >= ${p.startAt} AND s.completed_at < ${p.endAt}
+      WHERE s.status = 'COMPLETED' AND s.completed_at >= ${p.startAt} AND s.completed_at < ${p.endAt} ${inStores}
       UNION ALL
       SELECT NULL, r.completed_at, s.channel, s.location_id, s.cashier_id, si.variant_id,
              0, ri.qty, -ri.net_amount, -ri.tax_amount, CASE WHEN ri.restock THEN -ri.cost_amount ELSE 0 END
@@ -95,7 +103,7 @@ export async function salesReport(q: { from?: string | undefined; to?: string | 
       JOIN sale_returns r ON r.id = ri.return_id
       JOIN sale_items si ON si.id = ri.sale_item_id
       JOIN sales s ON s.id = r.sale_id
-      WHERE r.status = 'COMPLETED' AND r.completed_at >= ${p.startAt} AND r.completed_at < ${p.endAt}
+      WHERE r.status = 'COMPLETED' AND r.completed_at >= ${p.startAt} AND r.completed_at < ${p.endAt} ${inStores}
     )
     SELECT ${g.key} AS key, ${g.label} AS label, ${g.code ?? Prisma.sql`NULL::text`} AS code, COUNT(DISTINCT l.sale_id) AS sales,
            SUM(l.qty_sold) AS qty_sold, SUM(l.qty_returned) AS qty_returned, SUM(l.net) AS net, SUM(l.tax) AS tax, SUM(l.cost) AS cost
@@ -128,7 +136,7 @@ export async function salesReport(q: { from?: string | undefined; to?: string | 
     cost: dec(r.cost.toString()),
   }));
   const [salesCount] = await db.$queryRaw<{ n: bigint }[]>`
-    SELECT COUNT(*) AS n FROM sales WHERE status = 'COMPLETED' AND completed_at >= ${p.startAt} AND completed_at < ${p.endAt}`;
+    SELECT COUNT(*) AS n FROM sales s WHERE s.status = 'COMPLETED' AND s.completed_at >= ${p.startAt} AND s.completed_at < ${p.endAt} ${inStores}`;
   const { key: _k, label: _l, code: _c, ...totals } = toRow({
     key: '',
     label: '',
@@ -145,17 +153,26 @@ export async function salesReport(q: { from?: string | undefined; to?: string | 
 
 // ── Payments ─────────────────────────────────────────────────────────────
 
-/** Money taken and paid back by payment method: sale payments, customer receipts and refunds. */
-export async function paymentsReport(from?: string, to?: string): Promise<PaymentsReport> {
+/**
+ * Money taken and paid back by payment method: sale payments, customer receipts and refunds. For some stores,
+ * customer receipts (account payments, not taken at a store) are left out.
+ */
+export async function paymentsReport(from?: string, to?: string, stores: string[] | null = null): Promise<PaymentsReport> {
   const prisma = getPrisma();
   const p = period(from, to);
   const [methods, sales, receipts, refunds] = await Promise.all([
     prisma.paymentMethod.findMany({ orderBy: { sortOrder: 'asc' } }),
     prisma.$queryRaw<{ id: string; amount: Prisma.Decimal }[]>`
       SELECT sp.payment_method_id AS id, SUM(sp.amount) AS amount FROM sale_payments sp JOIN sales s ON s.id = sp.sale_id
-      WHERE s.status = 'COMPLETED' AND s.completed_at >= ${p.startAt} AND s.completed_at < ${p.endAt} GROUP BY 1`,
-    prisma.customerReceipt.groupBy({ by: ['paymentMethodId'], where: { receiptDate: { gte: new Date(`${p.from}T00:00:00Z`), lte: new Date(`${p.to}T00:00:00Z`) } }, _sum: { amount: true } }),
-    prisma.saleReturn.groupBy({ by: ['refundMethodId'], where: { status: 'COMPLETED', refundMethodId: { not: null }, completedAt: { gte: p.startAt, lt: p.endAt } }, _sum: { paidOut: true } }),
+      WHERE s.status = 'COMPLETED' AND s.completed_at >= ${p.startAt} AND s.completed_at < ${p.endAt} ${storeSql(Prisma.sql`s.location_id`, stores)} GROUP BY 1`,
+    stores
+      ? Promise.resolve([] as { paymentMethodId: string; _sum: { amount: Prisma.Decimal | null } }[])
+      : prisma.customerReceipt.groupBy({ by: ['paymentMethodId'], where: { receiptDate: { gte: new Date(`${p.from}T00:00:00Z`), lte: new Date(`${p.to}T00:00:00Z`) } }, _sum: { amount: true } }),
+    prisma.saleReturn.groupBy({
+      by: ['refundMethodId'],
+      where: { status: 'COMPLETED', refundMethodId: { not: null }, completedAt: { gte: p.startAt, lt: p.endAt }, ...(stores ? { sale: { locationId: { in: stores } } } : {}) },
+      _sum: { paidOut: true },
+    }),
   ]);
   const amount = (v: { toString(): string } | null | undefined) => dec(v?.toString() ?? 0);
   const rows = methods
@@ -203,21 +220,26 @@ export async function expensesReport(from?: string, to?: string): Promise<Expens
 
 // ── Stock ────────────────────────────────────────────────────────────────
 
-/** Stock on hand and value with the rate of sale: low, out-of-stock and slow-moving lines. */
-export async function stockReport(q: { days: number; status: 'all' | 'low' | 'out' | 'slow' }): Promise<StockReport> {
+/**
+ * Stock on hand and value with the rate of sale: low, out-of-stock and slow-moving lines. For some stores, quantities
+ * and sales are theirs, valued at the business-wide average cost; the reorder level applies to each store.
+ */
+export async function stockReport(q: { days: number; status: 'all' | 'low' | 'out' | 'slow'; stores?: string[] | null }): Promise<StockReport> {
   const prisma = getPrisma();
   const since = new Date(Date.now() - q.days * 86_400_000);
-  const [variants, sold, reserved] = await Promise.all([
+  const stores = q.stores ?? null;
+  const [variants, sold, balances] = await Promise.all([
     prisma.productVariant.findMany({ where: { archivedAt: null, status: 'ACTIVE', product: { archivedAt: null } }, include: { product: { select: { name: true } } }, orderBy: [{ product: { name: 'asc' } }, { name: 'asc' }] }),
     prisma.$queryRaw<{ variant_id: string; qty: Prisma.Decimal }[]>`
       SELECT si.variant_id, SUM(si.qty) AS qty FROM sale_items si JOIN sales s ON s.id = si.sale_id
-      WHERE s.status = 'COMPLETED' AND s.completed_at >= ${since} GROUP BY 1`,
-    prisma.inventoryBalance.groupBy({ by: ['variantId'], _sum: { qtyReserved: true } }),
+      WHERE s.status = 'COMPLETED' AND s.completed_at >= ${since} ${storeSql(Prisma.sql`s.location_id`, stores)} GROUP BY 1`,
+    prisma.inventoryBalance.groupBy({ by: ['variantId'], where: stores ? { locationId: { in: stores } } : {}, _sum: { qtyReserved: true, qtyOnHand: true } }),
   ]);
   const soldBy = new Map(sold.map((s) => [s.variant_id, dec(s.qty.toString())]));
-  const reservedBy = new Map(reserved.map((r) => [r.variantId, dec(r._sum.qtyReserved?.toString() ?? 0)]));
+  const reservedBy = new Map(balances.map((r) => [r.variantId, dec(r._sum.qtyReserved?.toString() ?? 0)]));
+  const onHandBy = new Map(balances.map((r) => [r.variantId, dec(r._sum.qtyOnHand?.toString() ?? 0)]));
   const all: StockReportRow[] = variants.map((v) => {
-    const onHand = dec(v.stockQty.toString());
+    const onHand = stores ? (onHandBy.get(v.id) ?? ZERO) : dec(v.stockQty.toString());
     const qtySold = soldBy.get(v.id) ?? ZERO;
     const reorder = dec(v.reorderLevel.toString());
     const perDay = qtySold.dividedBy(q.days);
@@ -230,7 +252,7 @@ export async function stockReport(q: { days: number; status: 'all' | 'low' | 'ou
       onHand: onHand.toFixed(3),
       reserved: (reservedBy.get(v.id) ?? ZERO).toFixed(3),
       avgCost: v.avgCost.toFixed(4),
-      value: v.stockValue.toFixed(2),
+      value: stores ? onHand.times(v.avgCost.toString()).toFixed(2) : v.stockValue.toFixed(2),
       reorderLevel: reorder.toFixed(3),
       soldInPeriod: qtySold.toFixed(3),
       daysOfCover: perDay.isZero() || onHand.lte(0) ? null : Math.floor(onHand.dividedBy(perDay).toNumber()),

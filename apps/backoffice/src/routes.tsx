@@ -1,4 +1,5 @@
 import { lazy, Suspense, type ComponentType, type ReactNode } from 'react';
+import { RouteError } from './components/RouteError';
 import type { RouteObject } from 'react-router';
 import type { Permission } from '@rhoyards/shared';
 import { AppLayout } from './app/layout/AppLayout';
@@ -93,7 +94,7 @@ const guarded = (path: string, permission: Permission | Permission[], element: R
   element: <RequirePermission permission={permission}>{element}</RequirePermission>,
 });
 
-export const routes: RouteObject[] = [
+const appRoutes: RouteObject[] = [
   { path: '/login', element: <LoginPage /> },
   { path: '/forgot-password', element: <ForgotPasswordPage /> },
   { path: '/reset-password', element: <ResetPasswordPage /> },
@@ -190,3 +191,6 @@ export const routes: RouteObject[] = [
     ],
   },
 ];
+
+/** Every page sits under one error page (see components/RouteError.tsx). */
+export const routes: RouteObject[] = [{ errorElement: <RouteError />, children: appRoutes }];

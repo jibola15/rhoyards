@@ -18,3 +18,4 @@ export {
 export { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from './components/table';
 export { Select, Textarea, Checkbox, Field, Alert } from './components/form-controls';
 export { Toaster, toast } from './components/toaster';
+export { AppErrorScreen, installUpdateHandling, isStaleCodeError, NewVersionBanner, noteServerBuild, reloadOnceForUpdate, useUpdateAvailable } from './components/app-update';

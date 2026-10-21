@@ -19,6 +19,8 @@ export interface ApiClientOptions {
   /** Returns the CSRF token to send on state-changing requests (wired up with sessions in Phase 2). */
   getCsrfToken?: () => string | undefined;
   fetchImpl?: typeof fetch;
+  /** Sees every response (e.g. to notice the server is running a newer release). */
+  onResponse?: (res: Response) => void;
 }
 
 type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
@@ -29,7 +31,7 @@ export interface RequestOptions {
   signal?: AbortSignal;
 }
 
-export function createApiClient({ baseUrl, getCsrfToken, fetchImpl }: ApiClientOptions) {
+export function createApiClient({ baseUrl, getCsrfToken, fetchImpl, onResponse }: ApiClientOptions) {
   async function request<T>(method: Method, path: string, options: RequestOptions = {}): Promise<T> {
     const doFetch = fetchImpl ?? fetch;
     const headers: Record<string, string> = { Accept: 'application/json', ...options.headers };
@@ -48,6 +50,7 @@ export function createApiClient({ baseUrl, getCsrfToken, fetchImpl }: ApiClientO
       body: options.body === undefined ? undefined : isForm ? (options.body as FormData) : JSON.stringify(options.body),
       signal: options.signal,
     });
+    onResponse?.(res);
 
     const text = await res.text();
     let json: unknown;

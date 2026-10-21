@@ -7,9 +7,12 @@ import { cpSync, rmSync } from 'node:fs';
 
 const run = (cmd, env = {}) => execSync(cmd, { stdio: 'inherit', env: { ...process.env, ...env } });
 
+// The front ends carry the same release id the API reports (X-App-Version), so open tabs notice a new release.
+const build = { VITE_APP_BUILD: (process.env.VERCEL_GIT_COMMIT_SHA ?? '').slice(0, 12) };
+
 run('npm run build -w @rhoyards/api');
-run('npm run build -w @rhoyards/storefront');
-run('npm run build -w @rhoyards/backoffice', { BACKOFFICE_BASE: '/admin/' });
+run('npm run build -w @rhoyards/storefront', build);
+run('npm run build -w @rhoyards/backoffice', { ...build, BACKOFFICE_BASE: '/admin/' });
 
 const out = 'vercel-dist';
 rmSync(out, { recursive: true, force: true });

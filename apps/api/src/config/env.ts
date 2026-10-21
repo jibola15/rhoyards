@@ -74,6 +74,12 @@ const DEV_TWO_FACTOR_KEY = Buffer.from('rhoyards-dev-only-two-factor-key');
 
 export const APP_VERSION = '0.1.0';
 
+/**
+ * Identifies this release: the commit on Vercel (the front ends are built with the same value), else APP_BUILD,
+ * else the version. Sent as X-App-Version so an out-of-date browser tab can offer to reload.
+ */
+export const APP_BUILD = (process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.APP_BUILD ?? APP_VERSION).slice(0, 12);
+
 function fail(message: string): never {
   throw new Error(`Invalid environment configuration:\n${message}`);
 }

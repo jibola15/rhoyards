@@ -1,4 +1,5 @@
 import type { RouteObject } from 'react-router';
+import { RouteError } from './components/RouteError';
 import { LoginPage, RegisterPage } from './account/AuthPages';
 import { ForgotPasswordPage, ResetPasswordPage } from './account/PasswordResetPages';
 import { MyOrderPage, MyOrdersPage } from './account/OrderPages';
@@ -11,7 +12,7 @@ import { ProductPage } from './pages/ProductPage';
 import { ShopPage } from './pages/ShopPage';
 import { TestPayPage } from './pages/TestPayPage';
 
-export const routes: RouteObject[] = [
+const appRoutes: RouteObject[] = [
   {
     element: <StoreLayout />,
     children: [
@@ -31,3 +32,6 @@ export const routes: RouteObject[] = [
     ],
   },
 ];
+
+/** Every page sits under one error page (see components/RouteError.tsx). */
+export const routes: RouteObject[] = [{ errorElement: <RouteError />, children: appRoutes }];

@@ -6,7 +6,7 @@ import helmet from 'helmet';
 import type { Logger } from 'pino';
 import { pinoHttp } from 'pino-http';
 import swaggerUi from 'swagger-ui-express';
-import type { Env } from './config/env';
+import { APP_BUILD, type Env } from './config/env';
 import { setBusinessTimeZone } from './lib/business-date';
 import { createLogger } from './lib/logger';
 import { createMailer, type Mailer } from './lib/mailer';
@@ -92,7 +92,11 @@ export function createApp(
   });
   const docsHeaders = helmet();
   app.use((req, res, next) => (req.path.startsWith('/api/docs') ? docsHeaders : strictHeaders)(req, res, next));
-  app.use(cors({ origin: env.CORS_ORIGINS, credentials: true }));
+  app.use(cors({ origin: env.CORS_ORIGINS, credentials: true, exposedHeaders: ['X-App-Version'] }));
+  app.use((_req, res, next) => {
+    res.setHeader('X-App-Version', APP_BUILD);
+    next();
+  });
   app.use(
     express.json({
       limit: '1mb',

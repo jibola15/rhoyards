@@ -1,4 +1,5 @@
 import { createApiClient } from '@rhoyards/shared';
+import { noteServerBuild } from '@rhoyards/ui';
 
 let csrfToken: string | undefined;
 
@@ -7,7 +8,12 @@ export function setCsrfToken(token: string | undefined): void {
   csrfToken = token;
 }
 
-export const api = createApiClient({ baseUrl: '/api/v1/store', getCsrfToken: () => csrfToken });
+export const api = createApiClient({
+  baseUrl: '/api/v1/store',
+  getCsrfToken: () => csrfToken,
+  // A newer release on the server shows the "new version available" bar.
+  onResponse: (res) => noteServerBuild(res.headers.get('x-app-version'), import.meta.env.VITE_APP_BUILD ?? ''),
+});
 
 export function qs(params: Record<string, string | number | boolean | undefined | null>): string {
   const search = new URLSearchParams();

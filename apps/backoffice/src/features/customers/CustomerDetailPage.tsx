@@ -180,8 +180,18 @@ export function CustomerDetailPage() {
             </CardContent>
           </Card>
           <Card>
-            <CardHeader>
+            <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
               <CardTitle>Account statement</CardTitle>
+              <div className="flex gap-4 text-sm">
+                <Link to={`/reports/customer-ledger?customerId=${s.customer.id}`} className="text-primary hover:underline">
+                  Full ledger
+                </Link>
+                {can('reports.sales') && (
+                  <Link to={`/reports/customer-items?customerId=${s.customer.id}`} className="text-primary hover:underline">
+                    Items bought
+                  </Link>
+                )}
+              </div>
             </CardHeader>
             <CardContent>
               {s.lines.length === 0 ? (

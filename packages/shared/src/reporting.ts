@@ -118,7 +118,7 @@ export interface DashboardData {
 
 const range = { from: dateInput.optional(), to: dateInput.optional(), format: z.enum(['json', 'csv']).default('json') };
 
-export const SALES_GROUPS = ['day', 'product', 'category', 'brand', 'cashier', 'channel', 'location'] as const;
+export const SALES_GROUPS = ['day', 'product', 'category', 'brand', 'cashier', 'channel', 'location', 'customer'] as const;
 export type SalesGroup = (typeof SALES_GROUPS)[number];
 export const SALES_GROUP_LABELS: Record<SalesGroup, string> = {
   day: 'Day',
@@ -128,6 +128,7 @@ export const SALES_GROUP_LABELS: Record<SalesGroup, string> = {
   cashier: 'Cashier',
   channel: 'Channel',
   location: 'Location',
+  customer: 'Customer',
 };
 
 /** Optional: one store's figures (staff assigned to stores see only theirs). */
@@ -200,8 +201,114 @@ export interface StockReportRow {
 
 export interface StockReport {
   days: number;
-  rows: StockReportRow[];
-  totals: { onHand: string; value: string };
+  /** The stores covered, in the order of each row's `byStore` (empty when the report covers one store). */
+  stores: { id: string; name: string }[];
+  rows: (StockReportRow & { byStore: string[] })[];
+  totals: { onHand: string; value: string; byStore: string[] };
+}
+
+// ── Items bought per customer ─────────────────────────────────────────────
+
+export const customerItemsQuerySchema = z.object({
+  ...range,
+  ...store,
+  /** One customer; else every customer who bought in the period (walk-in sales left out). */
+  customerId: z.uuid().optional(),
+});
+
+export interface CustomerItemsRow {
+  customerId: string;
+  customer: string;
+  customerCode: string;
+  variantId: string;
+  sku: string;
+  product: string;
+  qtySold: string;
+  qtyReturned: string;
+  /** Net of VAT and discounts, less returns. */
+  netSales: string;
+  /** Including VAT: what the customer paid for the items. */
+  total: string;
+  lastBought: string | null;
+}
+
+export interface CustomerItemsReport {
+  from: string;
+  to: string;
+  /** Sorted by customer, then by net sales. */
+  rows: CustomerItemsRow[];
+  customers: { customerId: string; customer: string; customerCode: string; qtySold: string; netSales: string; total: string }[];
+  totals: { qtySold: string; qtyReturned: string; netSales: string; total: string };
+}
+
+// ── Item ledger ───────────────────────────────────────────────────────────
+
+export const itemLedgerQuerySchema = z.object({
+  variantId: z.uuid(),
+  ...range,
+  ...store,
+});
+
+export interface ItemLedgerLine {
+  id: string;
+  at: string;
+  type: string;
+  location: string;
+  lotNumber: string | null;
+  qtyIn: string;
+  qtyOut: string;
+  /** Running quantity: at the store, or business-wide. */
+  balance: string;
+  unitCost: string;
+  /** Signed value moved, at cost. */
+  value: string;
+  sourceType: string;
+  sourceId: string;
+  reference: string | null;
+  by: string;
+}
+
+export interface ItemLedger {
+  from: string;
+  to: string;
+  item: { variantId: string; sku: string; product: string; variant: string; avgCost: string };
+  /** Null for the whole business. */
+  store: { id: string; name: string } | null;
+  opening: { qty: string; value: string };
+  lines: ItemLedgerLine[];
+  totals: { qtyIn: string; qtyOut: string; value: string };
+  closing: { qty: string; value: string };
+}
+
+// ── Customer ledger ───────────────────────────────────────────────────────
+
+export const customerLedgerQuerySchema = z.object({ customerId: z.uuid(), ...range });
+
+export interface CustomerLedgerLine {
+  date: string;
+  type: 'SALE' | 'RECEIPT' | 'RETURN';
+  id: string;
+  number: string;
+  /** Store of the sale or return; null for a payment on account. */
+  location: string | null;
+  description: string;
+  /** Sale value (sale), or refund paid out (return). */
+  debit: string;
+  /** Paid at the till or on account, or value returned. */
+  credit: string;
+  /** Running amount owed (negative: in credit). */
+  balance: string;
+}
+
+export interface CustomerLedger {
+  from: string;
+  to: string;
+  customer: { id: string; code: string; name: string; phone: string | null; creditLimit: string; allowCredit: boolean };
+  openingBalance: string;
+  lines: CustomerLedgerLine[];
+  /** In the period: sales value, paid at the till and on account, value of returns, and refunds paid out. */
+  totals: { purchases: string; payments: string; returns: string; refunds: string };
+  closingBalance: string;
 }
 
 // ── Audit log ─────────────────────────────────────────────────────────────

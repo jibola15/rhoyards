@@ -22,22 +22,23 @@ import { formatMoney, formatQty } from '../../lib/format';
 const today = () => new Date().toISOString().slice(0, 10);
 const monthStart = () => `${today().slice(0, 7)}-01`;
 
-function useReport<T>(path: string, params: Record<string, string | number>) {
+export function useReport<T>(path: string, params: Record<string, string | number>, enabled = true) {
   return useQuery({
     queryKey: ['report', path, params],
     queryFn: ({ signal }) => api.get<DataEnvelope<T>>(`/reports/${path}${qs(params)}`, { signal }).then((r) => r.data),
+    enabled,
   });
 }
 
 /** CSV is served by the API; the browser downloads it with the staff session cookie. */
-const CsvLink = ({ path, params }: { path: string; params: Record<string, string | number> }) => (
+export const CsvLink = ({ path, params }: { path: string; params: Record<string, string | number> }) => (
   <a href={`/api/v1/reports/${path}${qs({ ...params, format: 'csv' })}`} className={buttonVariants({ variant: 'outline' })} download>
     <Download />
     Download CSV
   </a>
 );
 
-function Shell({ title, description, filters, csv, query, children }: { title: string; description: string; filters: ReactNode; csv: ReactNode; query: { isPending: boolean; isError: boolean; error: Error | null; refetch: () => unknown }; children: ReactNode }) {
+export function Shell({ title, description, filters, csv, query, children }: { title: string; description: string; filters: ReactNode; csv: ReactNode; query: { isPending: boolean; isFetching?: boolean; isError: boolean; error: Error | null; refetch: () => unknown }; children: ReactNode }) {
   return (
     <div className="space-y-6">
       <PageHeader title={title} description={description} actions={csv} />
@@ -45,7 +46,7 @@ function Shell({ title, description, filters, csv, query, children }: { title: s
         <CardContent className="space-y-4 pt-5">
           <div className="flex flex-wrap items-end gap-4">{filters}</div>
           {query.isError && query.error && <QueryError error={query.error} onRetry={() => void query.refetch()} />}
-          {query.isPending && <Skeleton className="h-64 w-full" />}
+          {query.isPending && query.isFetching !== false && <Skeleton className="h-64 w-full" />}
           {children}
         </CardContent>
       </Card>
@@ -53,7 +54,7 @@ function Shell({ title, description, filters, csv, query, children }: { title: s
   );
 }
 
-function useRange() {
+export function useRange() {
   const [from, setFrom] = useState(monthStart());
   const [to, setTo] = useState(today());
   const filters = (
@@ -70,7 +71,7 @@ function useRange() {
 }
 
 /** One store's figures, or all (the API limits staff assigned to stores to their own). */
-function useStore(anyStore = false) {
+export function useStore(anyStore = false) {
   const [store, setStore] = useState('');
   return {
     storeParam: (store ? { locationId: store } : {}) as Record<string, string>,
@@ -79,7 +80,7 @@ function useStore(anyStore = false) {
   };
 }
 
-const Num = ({ children, strong }: { children: ReactNode; strong?: boolean }) => <TableCell className={`text-right tabular-nums ${strong ? 'font-semibold' : ''}`}>{children}</TableCell>;
+export const Num = ({ children, strong }: { children: ReactNode; strong?: boolean }) => <TableCell className={`text-right tabular-nums ${strong ? 'font-semibold' : ''}`}>{children}</TableCell>;
 
 // ── Sales ────────────────────────────────────────────────────────────────
 
@@ -291,7 +292,7 @@ export function StockReportPage() {
   return (
     <Shell
       title="Stock report"
-      description="Stock on hand at cost with the rate of sale. Days of cover = stock ÷ average daily sales over the period. For one store, the reorder level applies to that store."
+      description="Stock on hand at cost with the rate of sale, and the quantity at each store. Days of cover = stock ÷ average daily sales over the period. For one store, the reorder level applies to that store. Choose a product to see its ledger."
       csv={<CsvLink path="stock" params={query} />}
       query={report}
       filters={
@@ -327,6 +328,11 @@ export function StockReportPage() {
               <TableRow>
                 <TableHead>Product</TableHead>
                 <TableHead className="text-right">On hand</TableHead>
+                {r.stores.map((st) => (
+                  <TableHead key={st.id} className="hidden text-right xl:table-cell">
+                    {st.name}
+                  </TableHead>
+                ))}
                 <TableHead className="hidden text-right lg:table-cell">Reorder at</TableHead>
                 <TableHead className="text-right">Value</TableHead>
                 <TableHead className="hidden text-right md:table-cell">Sold</TableHead>
@@ -338,13 +344,20 @@ export function StockReportPage() {
               {r.rows.map((row) => (
                 <TableRow key={row.variantId}>
                   <TableCell>
-                    {row.product} — {row.variant}
+                    <Link to={`/reports/item-ledger?variantId=${row.variantId}`} className="hover:underline">
+                      {row.product} — {row.variant}
+                    </Link>
                     <span className="block font-mono text-xs text-muted-foreground">{row.sku}</span>
                   </TableCell>
                   <Num>
                     {formatQty(row.onHand)}
                     {row.reserved !== '0.000' && <span className="block text-xs text-muted-foreground">{formatQty(row.reserved)} held online</span>}
                   </Num>
+                  {row.byStore.map((q, i) => (
+                    <TableCell key={r.stores[i]!.id} className="hidden text-right tabular-nums xl:table-cell">
+                      {q === '0.000' ? '—' : formatQty(q)}
+                    </TableCell>
+                  ))}
                   <TableCell className="hidden text-right tabular-nums lg:table-cell">{row.reorderLevel === '0.000' ? '—' : formatQty(row.reorderLevel)}</TableCell>
                   <Num>{formatMoney(row.value)}</Num>
                   <TableCell className="hidden text-right tabular-nums md:table-cell">{formatQty(row.soldInPeriod)}</TableCell>
@@ -357,6 +370,11 @@ export function StockReportPage() {
               <TableRow className="bg-muted/40 hover:bg-muted/40">
                 <TableCell className="font-semibold">Total</TableCell>
                 <Num strong>{formatQty(r.totals.onHand)}</Num>
+                {r.totals.byStore.map((q, i) => (
+                  <TableCell key={r.stores[i]!.id} className="hidden text-right font-semibold tabular-nums xl:table-cell">
+                    {formatQty(q)}
+                  </TableCell>
+                ))}
                 <TableCell className="hidden lg:table-cell" />
                 <Num strong>{formatMoney(r.totals.value)}</Num>
                 <TableCell colSpan={3} />

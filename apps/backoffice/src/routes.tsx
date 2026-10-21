@@ -70,6 +70,10 @@ const SalesReportPage = page(operational, 'SalesReportPage');
 const PaymentsReportPage = page(operational, 'PaymentsReportPage');
 const ExpensesReportPage = page(operational, 'ExpensesReportPage');
 const StockReportPage = page(operational, 'StockReportPage');
+const ledgers = () => import('./features/reports/LedgerReports');
+const CustomerItemsReportPage = page(ledgers, 'CustomerItemsReportPage');
+const ItemLedgerPage = page(ledgers, 'ItemLedgerPage');
+const CustomerLedgerPage = page(ledgers, 'CustomerLedgerPage');
 const AuditLogPage = page(() => import('./features/audit/AuditLogPage'), 'AuditLogPage');
 const RETURN_VIEWERS: Permission[] = ['returns.create', 'returns.approve', 'refunds.process', 'sales.view'];
 const EXPENSE_USERS: Permission[] = ['expenses.view', 'expenses.create', 'expenses.approve'];
@@ -170,6 +174,9 @@ const appRoutes: RouteObject[] = [
           guarded('reports/payments', ['reports.sales', 'reports.financial'], <PaymentsReportPage />),
           guarded('reports/expenses', ['reports.financial', 'expenses.view'], <ExpensesReportPage />),
           guarded('reports/stock', ['reports.inventory', 'inventory.view'], <StockReportPage />),
+          guarded('reports/customer-items', 'reports.sales', <CustomerItemsReportPage />),
+          guarded('reports/item-ledger', ['reports.inventory', 'inventory.view'], <ItemLedgerPage />),
+          guarded('reports/customer-ledger', ['customers.view', 'reports.sales'], <CustomerLedgerPage />),
           guarded('audit', 'audit.view', <AuditLogPage />),
           guarded('inventory/stock', 'inventory.view', <StockPage />),
           guarded('inventory/movements', 'inventory.view', <MovementsPage />),

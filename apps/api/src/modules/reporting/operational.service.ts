@@ -67,6 +67,12 @@ const groups = (): Record<SalesGroup, { key: Prisma.Sql; label: Prisma.Sql; join
   cashier: { key: Prisma.sql`u.id::text`, label: Prisma.sql`u.full_name`, join: Prisma.sql`JOIN users u ON u.id = l.cashier_id` },
   channel: { key: Prisma.sql`l.channel::text`, label: Prisma.sql`CASE l.channel::text WHEN 'POS' THEN 'Shop (POS)' ELSE 'Online' END`, join: Prisma.empty },
   location: { key: Prisma.sql`loc.id::text`, label: Prisma.sql`loc.name`, join: Prisma.sql`JOIN locations loc ON loc.id = l.location_id` },
+  customer: {
+    key: Prisma.sql`COALESCE(cu.id::text, '-')`,
+    label: Prisma.sql`COALESCE(cu.name, 'Walk-in customers')`,
+    code: Prisma.sql`cu.code`,
+    join: Prisma.sql`LEFT JOIN customers cu ON cu.id = l.customer_id`,
+  },
 });
 
 interface SalesRowRaw {
@@ -92,12 +98,12 @@ export async function salesReport(
   // A returned item's cost leaves cost of sales only when it went back to stock.
   const raw = await db.$queryRaw<SalesRowRaw[]>`
     WITH l AS (
-      SELECT s.id AS sale_id, s.completed_at AS at, s.channel, s.location_id, s.cashier_id, si.variant_id,
+      SELECT s.id AS sale_id, s.completed_at AS at, s.channel, s.location_id, s.cashier_id, s.customer_id, si.variant_id,
              si.qty AS qty_sold, 0::numeric AS qty_returned, si.net_amount AS net, si.tax_amount AS tax, si.cost_amount AS cost
       FROM sale_items si JOIN sales s ON s.id = si.sale_id
       WHERE s.status = 'COMPLETED' AND s.completed_at >= ${p.startAt} AND s.completed_at < ${p.endAt} ${inStores}
       UNION ALL
-      SELECT NULL, r.completed_at, s.channel, s.location_id, s.cashier_id, si.variant_id,
+      SELECT NULL, r.completed_at, s.channel, s.location_id, s.cashier_id, s.customer_id, si.variant_id,
              0, ri.qty, -ri.net_amount, -ri.tax_amount, CASE WHEN ri.restock THEN -ri.cost_amount ELSE 0 END
       FROM sale_return_items ri
       JOIN sale_returns r ON r.id = ri.return_id
@@ -223,22 +229,34 @@ export async function expensesReport(from?: string, to?: string): Promise<Expens
 /**
  * Stock on hand and value with the rate of sale: low, out-of-stock and slow-moving lines. For some stores, quantities
  * and sales are theirs, valued at the business-wide average cost; the reorder level applies to each store.
+ * Covering more than one store, each row also has the quantity at each store (`byStore`, in the order of `stores`).
  */
 export async function stockReport(q: { days: number; status: 'all' | 'low' | 'out' | 'slow'; stores?: string[] | null }): Promise<StockReport> {
   const prisma = getPrisma();
   const since = new Date(Date.now() - q.days * 86_400_000);
   const stores = q.stores ?? null;
-  const [variants, sold, balances] = await Promise.all([
+  const [variants, sold, balances, locations] = await Promise.all([
     prisma.productVariant.findMany({ where: { archivedAt: null, status: 'ACTIVE', product: { archivedAt: null } }, include: { product: { select: { name: true } } }, orderBy: [{ product: { name: 'asc' } }, { name: 'asc' }] }),
     prisma.$queryRaw<{ variant_id: string; qty: Prisma.Decimal }[]>`
       SELECT si.variant_id, SUM(si.qty) AS qty FROM sale_items si JOIN sales s ON s.id = si.sale_id
       WHERE s.status = 'COMPLETED' AND s.completed_at >= ${since} ${storeSql(Prisma.sql`s.location_id`, stores)} GROUP BY 1`,
-    prisma.inventoryBalance.groupBy({ by: ['variantId'], where: stores ? { locationId: { in: stores } } : {}, _sum: { qtyReserved: true, qtyOnHand: true } }),
+    prisma.inventoryBalance.findMany({ where: stores ? { locationId: { in: stores } } : {}, select: { variantId: true, locationId: true, qtyOnHand: true, qtyReserved: true } }),
+    stores?.length === 1
+      ? Promise.resolve([])
+      : prisma.location.findMany({ where: stores ? { id: { in: stores } } : { OR: [{ isActive: true }, { balances: { some: { qtyOnHand: { not: 0 } } } }] }, select: { id: true, name: true }, orderBy: { name: 'asc' } }),
   ]);
   const soldBy = new Map(sold.map((s) => [s.variant_id, dec(s.qty.toString())]));
-  const reservedBy = new Map(balances.map((r) => [r.variantId, dec(r._sum.qtyReserved?.toString() ?? 0)]));
-  const onHandBy = new Map(balances.map((r) => [r.variantId, dec(r._sum.qtyOnHand?.toString() ?? 0)]));
-  const all: StockReportRow[] = variants.map((v) => {
+  const add = (m: Map<string, Decimal>, k: string, v: { toString(): string }) => m.set(k, (m.get(k) ?? ZERO).plus(v.toString()));
+  const reservedBy = new Map<string, Decimal>();
+  const onHandBy = new Map<string, Decimal>();
+  const atStore = new Map<string, Decimal>();
+  for (const b of balances) {
+    add(reservedBy, b.variantId, b.qtyReserved);
+    add(onHandBy, b.variantId, b.qtyOnHand);
+    add(atStore, `${b.variantId}:${b.locationId}`, b.qtyOnHand);
+  }
+  const byStore = (variantId: string) => locations.map((l) => (atStore.get(`${variantId}:${l.id}`) ?? ZERO).toFixed(3));
+  const all: StockReport['rows'] = variants.map((v) => {
     const onHand = stores ? (onHandBy.get(v.id) ?? ZERO) : dec(v.stockQty.toString());
     const qtySold = soldBy.get(v.id) ?? ZERO;
     const reorder = dec(v.reorderLevel.toString());
@@ -257,8 +275,18 @@ export async function stockReport(q: { days: number; status: 'all' | 'low' | 'ou
       soldInPeriod: qtySold.toFixed(3),
       daysOfCover: perDay.isZero() || onHand.lte(0) ? null : Math.floor(onHand.dividedBy(perDay).toNumber()),
       status,
+      byStore: byStore(v.id),
     };
   });
   const rows = q.status === 'all' ? all : all.filter((r) => r.status === q.status.toUpperCase());
-  return { days: q.days, rows, totals: { onHand: sum(rows.map((r) => r.onHand)).toFixed(3), value: fmt(sum(rows.map((r) => r.value))) } };
+  return {
+    days: q.days,
+    stores: locations,
+    rows,
+    totals: {
+      onHand: sum(rows.map((r) => r.onHand)).toFixed(3),
+      value: fmt(sum(rows.map((r) => r.value))),
+      byStore: locations.map((_, i) => sum(rows.map((r) => r.byStore[i]!)).toFixed(3)),
+    },
+  };
 }

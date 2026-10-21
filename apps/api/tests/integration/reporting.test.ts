@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type request from 'supertest';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { dec, sum, type DashboardData, type SalesReport } from '@rhoyards/shared';
+import { dec, sum, type CustomerItemsReport, type CustomerLedger, type DashboardData, type ItemLedger, type SalesReport, type StockReport } from '@rhoyards/shared';
 import { businessDate } from '../../src/lib/business-date';
 import { toCsv } from '../../src/lib/csv';
 import { getPrisma } from '../../src/lib/prisma';
@@ -17,6 +17,7 @@ let manager: Staff;
 let cashier: Staff;
 let stockKeeper: Staff;
 let gel: string;
+let salon: string;
 const today = businessDate().toISOString().slice(0, 10);
 const monthStart = `${today.slice(0, 7)}-01`;
 
@@ -51,6 +52,7 @@ beforeAll(async () => {
   const cashSale = await sell({ lines: line('2'), payments: [{ paymentMethodId: pm.CASH, amount: '2150.00' }] });
   await sell({ lines: line('1'), payments: [{ paymentMethodId: pm.CARD, amount: '1075.00' }] });
   const customer = await ok(send(manager, '/customers', { name: 'Glow Salon', allowCredit: true, creditLimit: '10000' }), 201);
+  salon = customer.id;
   const credit = await sell({ customerId: customer.id, lines: line('1'), payments: [] });
   const ret = await ok(send(manager, '/returns', { saleId: cashSale.id, reason: 'Wrong one', approve: true, lines: [{ saleItemId: cashSale.items[0].id, qty: '1', condition: 'RESALEABLE', restock: true }] }), 201);
   await ok(send(manager, `/returns/${ret.id}/refund`, { paymentMethodId: pm.CASH }, { 'Idempotency-Key': randomUUID() }));
@@ -129,7 +131,7 @@ describe('dashboard figures equal the ledger and the reports', () => {
 
 describe('operational reports', () => {
   it('sales agree with the ledger however they are grouped', async () => {
-    for (const groupBy of ['day', 'product', 'category', 'brand', 'cashier', 'channel', 'location']) {
+    for (const groupBy of ['day', 'product', 'category', 'brand', 'cashier', 'channel', 'location', 'customer']) {
       const r: SalesReport = await ok(get(owner, `/reports/sales?groupBy=${groupBy}`));
       expect(r.totals).toMatchObject({ netSales: '3000.00', qtySold: '4.000', qtyReturned: '1.000', sales: 3 });
       expect(sum(r.rows.map((x) => x.netSales)).toFixed(2)).toBe('3000.00');
@@ -167,7 +169,69 @@ describe('operational reports', () => {
     expect(toCsv([{ header: 'v', value: (r: string) => r }], ['=HYPERLINK("x")', '-12.50', '@sum', 'a,b'])).toBe(`v\r\n"'=HYPERLINK(""x"")"\r\n-12.50\r\n'@sum\r\n"a,b"\r\n`);
   });
 
+  it('sales by customer put walk-in sales together', async () => {
+    const r: SalesReport = await ok(get(owner, '/reports/sales?groupBy=customer'));
+    expect(r.rows.map((x) => [x.label, x.netSales])).toEqual([
+      ['Walk-in customers', '2000.00'],
+      ['Glow Salon', '1000.00'],
+    ]);
+  });
+
+  it('stock shows each store’s quantity, adding up to the total', async () => {
+    const r: StockReport = await ok(get(owner, '/reports/stock'));
+    const row = r.rows.find((x) => x.variantId === gel)!;
+    expect(row.byStore).toHaveLength(r.stores.length);
+    expect(sum(row.byStore).toFixed(3)).toBe('7.000');
+    expect(r.stores.map((st) => st.id)).toContain(await mainLocationId());
+    const one: StockReport = await ok(get(owner, `/reports/stock?locationId=${await mainLocationId()}`));
+    expect(one.stores).toEqual([]);
+  });
+
+  it('items per customer leave out walk-in sales', async () => {
+    const r: CustomerItemsReport = await ok(get(owner, '/reports/customer-items'));
+    expect(r.rows).toEqual([expect.objectContaining({ customerId: salon, customer: 'Glow Salon', variantId: gel, qtySold: '1.000', qtyReturned: '0.000', netSales: '1000.00', total: '1075.00', lastBought: today })]);
+    expect(r.customers).toEqual([expect.objectContaining({ customerId: salon, netSales: '1000.00' })]);
+    const csv = await get(owner, `/reports/customer-items?customerId=${salon}&format=csv`);
+    expect(csv.text).toContain('Glow Salon');
+  });
+
+  it('item ledger runs from opening to closing stock, business-wide and at a store', async () => {
+    const r: ItemLedger = await ok(get(stockKeeper, `/reports/item-ledger?variantId=${gel}`));
+    expect(r.opening).toEqual({ qty: '0.000', value: '0.00' });
+    expect(r.lines.map((l) => l.balance)).toEqual(['10.000', '8.000', '7.000', '6.000', '7.000']);
+    expect(r.lines.filter((l) => l.type === 'SALE').map((l) => l.reference)).toEqual([expect.stringMatching(/\S/), expect.stringMatching(/\S/), expect.stringMatching(/\S/)]);
+    expect(r.totals).toMatchObject({ qtyIn: '11.000', qtyOut: '4.000' });
+    expect(r.closing).toEqual({ qty: '7.000', value: '4200.00' });
+    const variant = await prisma().productVariant.findUniqueOrThrow({ where: { id: gel } });
+    expect(r.closing.value).toBe(variant.stockValue.toFixed(2));
+    const atStore: ItemLedger = await ok(get(stockKeeper, `/reports/item-ledger?variantId=${gel}&locationId=${await mainLocationId()}`));
+    expect(atStore.closing.qty).toBe('7.000');
+    const tomorrow = new Date(`${today}T00:00:00Z`);
+    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+    const later: ItemLedger = await ok(get(stockKeeper, `/reports/item-ledger?variantId=${gel}&from=${tomorrow.toISOString().slice(0, 10)}&to=${tomorrow.toISOString().slice(0, 10)}`));
+    expect(later).toMatchObject({ opening: { qty: '7.000', value: '4200.00' }, lines: [], closing: { qty: '7.000' } });
+  });
+
+  it('customer ledger balance is what the customer owes', async () => {
+    const r: CustomerLedger = await ok(get(manager, `/reports/customer-ledger?customerId=${salon}`));
+    expect(r.openingBalance).toBe('0.00');
+    expect(r.lines.map((l) => [l.type, l.debit, l.credit, l.balance])).toEqual([
+      ['SALE', '1075.00', '0.00', '1075.00'],
+      ['RECEIPT', '0.00', '500.00', '575.00'],
+    ]);
+    expect(r.totals).toEqual({ purchases: '1075.00', payments: '500.00', returns: '0.00', refunds: '0.00' });
+    const statement = await ok(get(manager, `/customers/${salon}/statement`));
+    expect(r.closingBalance).toBe(statement.balance);
+    const csv = (await get(manager, `/reports/customer-ledger?customerId=${salon}&format=csv`)).text.replace(/^﻿/, '').split('\r\n');
+    expect(csv[0]).toBe('Date,Type,Number,Store,Description,Debit,Credit,Balance');
+    expect(csv[1]).toContain('Opening balance');
+    expect(csv.at(-2)).toContain('575.00');
+  });
+
   it('is visible only to the right roles', async () => {
+    expect((await get(cashier, '/reports/customer-items')).status).toBe(403);
+    expect((await get(stockKeeper, `/reports/customer-ledger?customerId=${salon}`)).status).toBe(403);
+    expect((await get(owner, `/reports/item-ledger?variantId=${randomUUID()}`)).status).toBe(404);
     expect((await get(cashier, '/dashboard')).status).toBe(403);
     expect((await get(stockKeeper, '/reports/sales')).status).toBe(403);
     expect((await get(cashier, '/reports/stock')).status).toBe(200); // cashiers see stock levels

@@ -1,14 +1,20 @@
 import { Router, type Request } from 'express';
 import {
+  customerItemsQuerySchema,
+  customerLedgerQuerySchema,
   dashboardQuerySchema,
+  itemLedgerQuerySchema,
   periodReportQuerySchema,
   SALES_GROUP_LABELS,
   salesReportQuerySchema,
   stockReportQuerySchema,
+  type CustomerItemsRow,
+  type CustomerLedgerLine,
   type ExpensesReport,
+  type ItemLedgerLine,
   type PaymentsReport,
   type SalesReportRow,
-  type StockReportRow,
+  type StockReport,
 } from '@rhoyards/shared';
 import { sendCsv, type CsvColumn } from '../../lib/csv';
 import { getPrisma } from '../../lib/prisma';
@@ -17,6 +23,7 @@ import { registry } from '../../openapi/registry';
 import { requireAnyPermission, requirePermission } from '../auth/auth.middleware';
 import { assertLocationAccess, locationScope } from '../auth/location-scope';
 import { getDashboard } from './dashboard.service';
+import { customerItemsReport, customerLedger, itemLedger } from './ledgers.service';
 import { expensesReport, paymentsReport, salesReport, stockReport } from './operational.service';
 
 /** Expenses are not recorded per store. */
@@ -36,10 +43,13 @@ async function reportStores(req: Request, locationId: string | undefined, anySto
 
 const docs: [string, string, Parameters<typeof registry.registerPath>[0]['request']][] = [
   ['/dashboard', 'Management dashboard: sales, profit, sales chart and best sellers for ?period= (default this month); balances and attention items as of now; ?locationId= for one store (dashboard.view)', { query: dashboardQuerySchema }],
-  ['/reports/sales', 'Sales by day, product, category, brand, cashier, channel or location; ?format=csv (reports.sales)', { query: salesReportQuerySchema }],
+  ['/reports/sales', 'Sales by day, product, category, brand, cashier, channel, location or customer; ?format=csv (reports.sales)', { query: salesReportQuerySchema }],
   ['/reports/payments', 'Money taken and refunded by payment method; ?format=csv (reports.sales or reports.financial)', { query: periodReportQuerySchema }],
   ['/reports/expenses', 'Posted expenses by category, whole business; ?format=csv (reports.financial or expenses.view)', { query: expensesQuerySchema }],
-  ['/reports/stock', 'Stock on hand, value, rate of sale and status; ?format=csv (reports.inventory or inventory.view)', { query: stockReportQuerySchema }],
+  ['/reports/stock', 'Stock on hand, value, rate of sale and status, with each store’s quantity; ?format=csv (reports.inventory or inventory.view)', { query: stockReportQuerySchema }],
+  ['/reports/customer-items', 'Items bought per customer, less returns; ?format=csv (reports.sales)', { query: customerItemsQuerySchema }],
+  ['/reports/item-ledger', 'One item’s stock movements with opening, running and closing quantity, at a store or business-wide; ?format=csv (reports.inventory or inventory.view)', { query: itemLedgerQuerySchema }],
+  ['/reports/customer-ledger', 'One customer’s sales, payments and returns with opening, running and closing balance; ?format=csv (customers.view or reports.sales)', { query: customerLedgerQuerySchema }],
 ];
 for (const [path, summary, request] of docs) {
   registry.registerPath({ method: 'get', path, tags: ['Reports'], summary, ...(request ? { request } : {}), responses: { 200: { description: 'Report (JSON or CSV)' } } });
@@ -71,11 +81,13 @@ const expenseColumns: CsvColumn<ExpensesReport['rows'][number]>[] = [
   { header: 'VAT', value: (r) => r.tax },
   { header: 'Total', value: (r) => r.total },
 ];
-const stockColumns: CsvColumn<StockReportRow>[] = [
+type StockRow = StockReport['rows'][number];
+const stockColumns = (stores: StockReport['stores']): CsvColumn<StockRow>[] => [
   { header: 'SKU', value: (r) => r.sku },
   { header: 'Product', value: (r) => r.product },
   { header: 'Variant', value: (r) => r.variant },
   { header: 'On hand', value: (r) => r.onHand },
+  ...stores.map((st, i): CsvColumn<StockRow> => ({ header: `At ${st.name}`, value: (r) => r.byStore[i] })),
   { header: 'Reserved', value: (r) => r.reserved },
   { header: 'Average cost', value: (r) => r.avgCost },
   { header: 'Value', value: (r) => r.value },
@@ -83,6 +95,40 @@ const stockColumns: CsvColumn<StockReportRow>[] = [
   { header: 'Sold in period', value: (r) => r.soldInPeriod },
   { header: 'Days of cover', value: (r) => r.daysOfCover },
   { header: 'Status', value: (r) => r.status },
+];
+const customerItemColumns: CsvColumn<CustomerItemsRow>[] = [
+  { header: 'Customer code', value: (r) => r.customerCode },
+  { header: 'Customer', value: (r) => r.customer },
+  { header: 'SKU', value: (r) => r.sku },
+  { header: 'Product', value: (r) => r.product },
+  { header: 'Qty bought', value: (r) => r.qtySold },
+  { header: 'Qty returned', value: (r) => r.qtyReturned },
+  { header: 'Net sales', value: (r) => r.netSales },
+  { header: 'Total incl. VAT', value: (r) => r.total },
+  { header: 'Last bought', value: (r) => r.lastBought },
+];
+const itemLedgerColumns: CsvColumn<ItemLedgerLine>[] = [
+  { header: 'When', value: (r) => r.at },
+  { header: 'Type', value: (r) => r.type },
+  { header: 'Reference', value: (r) => r.reference ?? r.sourceType },
+  { header: 'Store', value: (r) => r.location },
+  { header: 'Lot', value: (r) => r.lotNumber },
+  { header: 'In', value: (r) => r.qtyIn },
+  { header: 'Out', value: (r) => r.qtyOut },
+  { header: 'Balance', value: (r) => r.balance },
+  { header: 'Unit cost', value: (r) => r.unitCost },
+  { header: 'Value', value: (r) => r.value },
+  { header: 'By', value: (r) => r.by },
+];
+const customerLedgerColumns: CsvColumn<CustomerLedgerLine>[] = [
+  { header: 'Date', value: (r) => r.date },
+  { header: 'Type', value: (r) => r.type },
+  { header: 'Number', value: (r) => r.number },
+  { header: 'Store', value: (r) => r.location },
+  { header: 'Description', value: (r) => r.description },
+  { header: 'Debit', value: (r) => r.debit },
+  { header: 'Credit', value: (r) => r.credit },
+  { header: 'Balance', value: (r) => r.balance },
 ];
 
 export const reportingRouter = Router();
@@ -112,6 +158,32 @@ reportingRouter.get('/reports/expenses', ...requireAnyPermission('reports.financ
 reportingRouter.get('/reports/stock', ...requireAnyPermission('reports.inventory', 'inventory.view'), async (req, res) => {
   const q = parse(stockReportQuerySchema, req.query);
   const report = await stockReport({ ...q, stores: (await reportStores(req, q.locationId, true))?.ids ?? null });
-  if (q.format === 'csv') return sendCsv(res, `stock-${q.status}.csv`, stockColumns, report.rows);
+  if (q.format === 'csv') return sendCsv(res, `stock-${q.status}.csv`, stockColumns(report.stores), report.rows);
+  res.json({ data: report });
+});
+reportingRouter.get('/reports/customer-items', ...requirePermission('reports.sales'), async (req, res) => {
+  const q = parse(customerItemsQuerySchema, req.query);
+  const report = await customerItemsReport({ ...q, stores: (await reportStores(req, q.locationId))?.ids ?? null });
+  if (q.format === 'csv') return sendCsv(res, `items-per-customer-${report.from}-to-${report.to}.csv`, customerItemColumns, report.rows);
+  res.json({ data: report });
+});
+reportingRouter.get('/reports/item-ledger', ...requireAnyPermission('reports.inventory', 'inventory.view'), async (req, res) => {
+  const q = parse(itemLedgerQuerySchema, req.query);
+  const report = await itemLedger(q);
+  if (q.format === 'csv') {
+    const opening = { at: report.from, type: 'OPENING BALANCE', balance: report.opening.qty, value: report.opening.value } as ItemLedgerLine;
+    const closing = { at: report.to, type: 'CLOSING BALANCE', balance: report.closing.qty, value: report.closing.value } as ItemLedgerLine;
+    return sendCsv(res, `item-ledger-${report.item.sku}-${report.from}-to-${report.to}.csv`, itemLedgerColumns, [opening, ...report.lines, closing]);
+  }
+  res.json({ data: report });
+});
+reportingRouter.get('/reports/customer-ledger', ...requireAnyPermission('customers.view', 'reports.sales'), async (req, res) => {
+  const q = parse(customerLedgerQuerySchema, req.query);
+  const report = await customerLedger(q);
+  if (q.format === 'csv') {
+    const opening = { date: report.from, description: 'Opening balance', balance: report.openingBalance } as CustomerLedgerLine;
+    const closing = { date: report.to, description: 'Closing balance', balance: report.closingBalance } as CustomerLedgerLine;
+    return sendCsv(res, `customer-ledger-${report.customer.code}-${report.from}-to-${report.to}.csv`, customerLedgerColumns, [opening, ...report.lines, closing]);
+  }
   res.json({ data: report });
 });

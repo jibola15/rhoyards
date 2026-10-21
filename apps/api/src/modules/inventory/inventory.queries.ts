@@ -83,14 +83,19 @@ export async function listStock(query: z.infer<typeof stockQuerySchema>) {
 }
 
 /** Resolves document numbers for the movement ledger's "reference" column. */
-async function references(rows: { sourceType: string; sourceId: string }[]) {
+export async function references(rows: { sourceType: string; sourceId: string }[]) {
   const ids = (type: string) => [...new Set(rows.filter((r) => r.sourceType === type).map((r) => r.sourceId))];
   const prisma = getPrisma();
-  const [adjustments, transfers] = await Promise.all([
-    prisma.stockAdjustment.findMany({ where: { id: { in: ids('STOCK_ADJUSTMENT') } }, select: { id: true, number: true } }),
-    prisma.stockTransfer.findMany({ where: { id: { in: ids('STOCK_TRANSFER') } }, select: { id: true, number: true } }),
+  const select = { id: true, number: true } as const;
+  const docs = await Promise.all([
+    prisma.stockAdjustment.findMany({ where: { id: { in: ids('STOCK_ADJUSTMENT') } }, select }),
+    prisma.stockTransfer.findMany({ where: { id: { in: ids('STOCK_TRANSFER') } }, select }),
+    prisma.sale.findMany({ where: { id: { in: ids('SALE') } }, select }),
+    prisma.saleReturn.findMany({ where: { id: { in: ids('SALE_RETURN') } }, select }),
+    prisma.goodsReceipt.findMany({ where: { id: { in: ids('GOODS_RECEIPT') } }, select }),
+    prisma.purchaseReturn.findMany({ where: { id: { in: ids('PURCHASE_RETURN') } }, select }),
   ]);
-  return new Map([...adjustments, ...transfers].map((d) => [d.id, d.number]));
+  return new Map(docs.flat().map((d) => [d.id, d.number]));
 }
 
 export async function listMovements(query: z.infer<typeof movementQuerySchema>) {

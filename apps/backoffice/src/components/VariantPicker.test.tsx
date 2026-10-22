@@ -9,11 +9,11 @@ import { VariantPicker } from './VariantPicker';
 const variant = (id: string, sku: string): VariantLookup =>
   ({ id, sku, name: '100 g', productName: `Product ${id}`, sellingPrice: '1000.00', qtyOnHand: null }) as unknown as VariantLookup;
 
-function renderPicker(onSelect: (v: VariantLookup) => void, captureScans = false) {
+function renderPicker(onSelect: (v: VariantLookup, qty: string) => void, captureScans = false, withQty = false) {
   render(
     <QueryClientProvider client={createQueryClient({ retry: false })}>
       <button type="button">Elsewhere</button>
-      <VariantPicker label="Scan" onSelect={onSelect} captureScans={captureScans} />
+      <VariantPicker label="Scan" onSelect={onSelect} captureScans={captureScans} withQty={withQty} />
     </QueryClientProvider>,
   );
   return screen.getByRole('combobox', { name: 'Scan' }) as HTMLInputElement;
@@ -60,7 +60,7 @@ describe('VariantPicker with a barcode scanner', () => {
     const input = renderPicker(onSelect);
 
     scanInto(input, '5012345678900', 'Tab');
-    await waitFor(() => expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ sku: 'SKU-C' })));
+    await waitFor(() => expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ sku: 'SKU-C' }), '1'));
 
     scanInto(input, '9999999999999');
     expect(await screen.findByRole('alert')).toHaveTextContent('No product has the code “9999999999999”');
@@ -76,7 +76,7 @@ describe('VariantPicker with a barcode scanner', () => {
     for (const ch of '4006381333931') fireEvent.keyDown(elsewhere, { key: ch });
     fireEvent.keyDown(elsewhere, { key: 'Enter' });
 
-    await waitFor(() => expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ sku: 'SKU-D' })));
+    await waitFor(() => expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ sku: 'SKU-D' }), '1'));
     expect(document.activeElement).toBe(input);
   });
 
@@ -94,5 +94,59 @@ describe('VariantPicker with a barcode scanner', () => {
     await new Promise((r) => setTimeout(r, 50));
     expect(fetchMock).not.toHaveBeenCalled();
     expect(onSelect).not.toHaveBeenCalled();
+  });
+});
+
+describe('VariantPicker with a Pieces box', () => {
+  it('adds the number of pieces entered, then goes back to 1', async () => {
+    mockApi({ 'GET /variants/by-code/5012345678900': () => json(200, { data: variant('c', 'SKU-C') }) });
+    const onSelect = vi.fn();
+    const input = renderPicker(onSelect, false, true);
+    const pieces = screen.getByRole('textbox', { name: 'Pieces' }) as HTMLInputElement;
+
+    fireEvent.change(pieces, { target: { value: '12' } });
+    scanInto(input, '5012345678900');
+    await waitFor(() => expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ sku: 'SKU-C' }), '12'));
+    expect(pieces.value).toBe('1');
+
+    scanInto(input, '5012345678900');
+    await waitFor(() => expect(onSelect).toHaveBeenLastCalledWith(expect.objectContaining({ sku: 'SKU-C' }), '1'));
+  });
+
+  it('reads an "N*" prefix typed before the scan', async () => {
+    mockApi({ 'GET /variants/by-code/5012345678900': () => json(200, { data: variant('c', 'SKU-C') }) });
+    const onSelect = vi.fn();
+    const input = renderPicker(onSelect, false, true);
+
+    fireEvent.change(input, { target: { value: '6*' } });
+    scanInto(input, '5012345678900');
+    await waitFor(() => expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ sku: 'SKU-C' }), '6'));
+  });
+
+  it('takes a code scanned into the Pieces box as a scan of that many pieces', async () => {
+    mockApi({ 'GET /variants/by-code/5012345678900': () => json(200, { data: variant('c', 'SKU-C') }) });
+    const onSelect = vi.fn();
+    renderPicker(onSelect, false, true);
+    const pieces = screen.getByRole('textbox', { name: 'Pieces' }) as HTMLInputElement;
+
+    const now = vi.spyOn(performance, 'now');
+    let t = 0;
+    now.mockImplementation(() => t);
+    fireEvent.change(pieces, { target: { value: '4' } });
+    t = 1000;
+    scanInto(pieces, '5012345678900');
+    now.mockRestore();
+
+    await waitFor(() => expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ sku: 'SKU-C' }), '4'));
+  });
+
+  it('refuses a scan when the Pieces box holds no number', async () => {
+    const fetchMock = mockApi({});
+    const onSelect = vi.fn();
+    const input = renderPicker(onSelect, false, true);
+    fireEvent.change(screen.getByRole('textbox', { name: 'Pieces' }), { target: { value: '0' } });
+    scanInto(input, '5012345678900');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Enter the number of pieces');
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

@@ -41,6 +41,11 @@ export function useScanTiming() {
       const recent = performance.now() - last.current.at < SCAN_KEY_GAP_MS * 2;
       return recent && last.current.fastRun >= MIN_SCAN_LENGTH;
     },
+    /** How many characters at the end of the box just arrived in one scanner burst (0 when typed by hand). */
+    burstLength(): number {
+      const recent = performance.now() - last.current.at < SCAN_KEY_GAP_MS * 2;
+      return recent && last.current.fastRun >= MIN_SCAN_LENGTH ? last.current.fastRun : 0;
+    },
   };
 }
 

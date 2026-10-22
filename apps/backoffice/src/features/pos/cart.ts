@@ -21,12 +21,12 @@ export interface Cart {
 
 export const emptyCart = (): Cart => ({ lines: [], customer: null, note: '' });
 
-export function lineFromVariant(v: VariantLookup): CartLine {
+export function lineFromVariant(v: VariantLookup, qty = '1'): CartLine {
   return {
     variantId: v.id,
     sku: v.sku,
     description: `${v.productName} — ${v.name}`,
-    qty: '1',
+    qty,
     unitPrice: v.sellingPrice,
     listPrice: v.sellingPrice,
     taxRate: v.taxRate,
@@ -39,11 +39,11 @@ export function linesFromSuspended(cart: SuspendedCart): CartLine[] {
   return cart.lines.map((l) => ({ ...l, qty: l.qty.replace(/\.?0+$/, '') }));
 }
 
-/** Scanning the same item again adds one to its line instead of adding a new line. */
+/** Scanning the same item again adds its pieces to that line instead of adding a new line. */
 export function addLine(lines: CartLine[], line: CartLine): CartLine[] {
   const i = lines.findIndex((l) => l.variantId === line.variantId && l.unitPrice === line.unitPrice && !l.discount);
   if (i === -1) return [...lines, line];
-  return lines.map((l, j) => (j === i ? { ...l, qty: dec(l.qty).plus(1).toString() } : l));
+  return lines.map((l, j) => (j === i ? { ...l, qty: dec(l.qty).plus(line.qty).toString() } : l));
 }
 
 export type CartTotals = { ok: true; priced: PricedSale } | { ok: false; error: string; line: number };

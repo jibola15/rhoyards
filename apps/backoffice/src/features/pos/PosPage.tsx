@@ -188,8 +188,9 @@ function Till({ ctx, shift }: { ctx: PosContext; shift: ShiftSummary }) {
               autoFocus
               label="Scan or search a product"
               placeholder="Scan a barcode, or type a name or SKU"
+              withQty
               locationId={shift.register.locationId}
-              onSelect={(v) => setCart((c) => ({ ...c, lines: addLine(c.lines, lineFromVariant(v)) }))}
+              onSelect={(v, qty) => setCart((c) => ({ ...c, lines: addLine(c.lines, lineFromVariant(v, qty)) }))}
             />
             {cart.lines.length === 0 ? (
               <EmptyState title="The cart is empty">Scan an item or search for it above.</EmptyState>

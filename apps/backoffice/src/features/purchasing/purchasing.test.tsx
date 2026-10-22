@@ -96,6 +96,7 @@ describe('purchase order editor', () => {
     await user.type(screen.getByRole('combobox', { name: 'Add product' }), 'SN-ECG-100{Enter}');
     expect(await screen.findByText('Edge Control Gel — 100 g')).toBeInTheDocument();
     expect(screen.getByLabelText('Unit cost (excl. VAT)')).toHaveValue('1500');
+    await user.clear(screen.getByLabelText('Quantity'));
     await user.type(screen.getByLabelText('Quantity'), '10');
 
     // 10 × 1,500 = 15,000; VAT 7.5% = 1,125; total 16,125.

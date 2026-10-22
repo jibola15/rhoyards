@@ -34,7 +34,7 @@ import { formatDate, formatDateTime, formatMoney, formatQty } from '../../lib/fo
 import { applyServerErrors } from '../../lib/forms';
 import { useTaxRates } from '../catalog/api';
 import { useStoreChoices } from '../../lib/stores';
-import { today, useDocument, useRefreshPurchasing, useSupplierOptions } from './api';
+import { addQty, today, useDocument, useRefreshPurchasing, useSupplierOptions } from './api';
 import { DocumentShell, InfoGrid, TotalsBox } from './shared';
 import { lineTotals } from './totals';
 
@@ -68,7 +68,7 @@ function PoEditor({ existing, onDone }: { existing?: PurchaseOrderDetail; onDone
   const taxRates = useTaxRates();
   const [formError, setFormError] = useState<string | null>(null);
   const defaultLocation = stores.defaultId;
-  const { register, control, handleSubmit, setError, formState } = useForm<FormValues>({
+  const { register, control, handleSubmit, setError, formState, getValues, setValue } = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     values: existing
       ? {
@@ -158,17 +158,24 @@ function PoEditor({ existing, onDone }: { existing?: PurchaseOrderDetail; onDone
         </CardHeader>
         <CardContent className="space-y-3">
           <VariantPicker
-            onSelect={(v) =>
+            withQty
+            onSelect={(v, qty) => {
+              // Scanning an item already on the order adds to its line.
+              const i = getValues('lines').findIndex((l) => l.variantId === v.id);
+              if (i !== -1) {
+                setValue(`lines.${i}.qty`, addQty(getValues(`lines.${i}.qty`), qty), { shouldDirty: true });
+                return;
+              }
               lines.append({
                 variantId: v.id,
                 label: `${v.productName} — ${v.name}`,
                 sku: v.sku,
                 defaultRate: v.taxRate,
-                qty: '',
+                qty,
                 unitCost: v.standardCost ? formatQty(v.standardCost) : Number(v.avgCost) > 0 ? formatQty(v.avgCost) : '',
                 taxRateId: '',
-              })
-            }
+              });
+            }}
           />
           {le?.root?.message && <Alert variant="destructive">{le.root.message}</Alert>}
           {le?.message && <Alert variant="destructive">{le.message}</Alert>}

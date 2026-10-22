@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import type { AccountOption, DataEnvelope, ListEnvelope, SupplierSummary } from '@rhoyards/shared';
+import { dec, type AccountOption, type DataEnvelope, type ListEnvelope, type SupplierSummary } from '@rhoyards/shared';
 import { api } from '../../lib/api';
 
 /** Active suppliers for selects (a small business has well under the page limit). */
@@ -61,3 +61,9 @@ export const INVOICE_STATUSES = [
 ];
 
 export const today = () => new Date().toISOString().slice(0, 10);
+
+/** Pieces from another scan added to a line's quantity; a blank or unreadable quantity is replaced. */
+export function addQty(current: string, more: string): string {
+  const c = current.trim();
+  return /^\d+(\.\d+)?$/.test(c) ? dec(c).plus(more).toString() : more;
+}

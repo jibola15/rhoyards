@@ -506,7 +506,9 @@ async function withBalances(rows: LookupRow[], locationId: string | undefined): 
 }
 
 export async function searchVariants(query: z.infer<typeof variantSearchQuerySchema>) {
-  const q = query.q;
+  const q = query.q?.trim();
+  // Each typed word must appear somewhere (SKU, variant or product name), so "rice 5kg" finds "Rice — 5kg".
+  const words = q ? q.split(/\s+/).slice(0, 6) : [];
   const where: Prisma.ProductVariantWhereInput = {
     archivedAt: null,
     product: { archivedAt: null, ...(query.activeOnly ? { status: 'ACTIVE' } : {}) },
@@ -514,9 +516,15 @@ export async function searchVariants(query: z.infer<typeof variantSearchQuerySch
     ...(q
       ? {
           OR: [
-            { sku: { contains: q, mode: 'insensitive' } },
-            { name: { contains: q, mode: 'insensitive' } },
-            { product: { name: { contains: q, mode: 'insensitive' } } },
+            {
+              AND: words.map((w) => ({
+                OR: [
+                  { sku: { contains: w, mode: 'insensitive' as const } },
+                  { name: { contains: w, mode: 'insensitive' as const } },
+                  { product: { name: { contains: w, mode: 'insensitive' as const } } },
+                ],
+              })),
+            },
             { barcodes: { some: { barcode: q } } },
           ],
         }
@@ -532,6 +540,18 @@ export async function searchVariants(query: z.infer<typeof variantSearchQuerySch
     }),
     prisma.productVariant.count({ where }),
   ]);
+  if (q) {
+    // Best matches first: exact SKU, then SKU or name starting with what was typed, then the rest (stable).
+    const t = q.toLowerCase();
+    const rank = (r: (typeof rows)[number]) => {
+      const sku = r.sku.toLowerCase();
+      if (sku === t) return 0;
+      if (sku.startsWith(t)) return 1;
+      if (r.product.name.toLowerCase().startsWith(t) || r.name.toLowerCase().startsWith(t)) return 2;
+      return 3;
+    };
+    rows.sort((a, b) => rank(a) - rank(b));
+  }
   return { data: await withBalances(rows, query.locationId), total };
 }
 

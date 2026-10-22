@@ -34,7 +34,7 @@ import { api } from '../../lib/api';
 import { formatDate, formatDateTime, formatMoney, formatQty } from '../../lib/format';
 import { applyServerErrors } from '../../lib/forms';
 import { useStoreChoices } from '../../lib/stores';
-import { today, useDocument, useRefreshPurchasing, useSupplierOptions } from './api';
+import { addQty, today, useDocument, useRefreshPurchasing, useSupplierOptions } from './api';
 import { DocumentShell, InfoGrid } from './shared';
 
 const KEY = 'goods-receipts';
@@ -76,7 +76,7 @@ function GrnEditor({ existing, onDone }: { existing?: GoodsReceiptDetail; onDone
   const [formError, setFormError] = useState<string | null>(null);
   const fromPo = Boolean(existing?.po);
   const defaultLocation = stores.defaultId;
-  const { register, control, handleSubmit, setError, formState } = useForm<FormValues>({
+  const { register, control, handleSubmit, setError, formState, getValues, setValue } = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     values: existing
       ? {
@@ -177,7 +177,14 @@ function GrnEditor({ existing, onDone }: { existing?: GoodsReceiptDetail; onDone
           {!fromPo && (
             <VariantPicker
               captureScans
-              onSelect={(v) =>
+              withQty
+              onSelect={(v, qty) => {
+                // Scanning an item already on the receipt adds to its line, unless that line already has a lot or expiry.
+                const i = getValues('lines').findIndex((l) => l.variantId === v.id && !l.lotNumber && !l.expiryDate);
+                if (i !== -1) {
+                  setValue(`lines.${i}.qty`, addQty(getValues(`lines.${i}.qty`), qty), { shouldDirty: true });
+                  return;
+                }
                 lines.append({
                   poLineId: '',
                   variantId: v.id,
@@ -185,13 +192,13 @@ function GrnEditor({ existing, onDone }: { existing?: GoodsReceiptDetail; onDone
                   sku: v.sku,
                   isBatchTracked: v.isBatchTracked,
                   isExpiryTracked: v.isExpiryTracked,
-                  qty: '',
+                  qty,
                   unitCost: v.standardCost ? formatQty(v.standardCost) : '',
                   taxRateId: '',
                   lotNumber: '',
                   expiryDate: '',
-                })
-              }
+                });
+              }}
             />
           )}
           {fromPo && <p className="text-sm text-muted-foreground">Lines come from order {existing!.po!.number}. Reduce a quantity if less arrived.</p>}

@@ -180,30 +180,6 @@ export function VariantPicker({
 
   return (
     <div className="flex items-start gap-2">
-      {withQty && (
-        <div className="w-20 shrink-0">
-          <label htmlFor={`${listId}-qty`} className="sr-only">
-            Pieces
-          </label>
-          <Input
-            id={`${listId}-qty`}
-            inputMode="decimal"
-            autoComplete="off"
-            title="Pieces added by the next scan"
-            className="text-right tabular-nums"
-            value={qty}
-            onChange={(e) => {
-              setQty(e.target.value.trim());
-              setError(null);
-            }}
-            onFocus={(e) => e.target.select()}
-            onKeyDown={onQtyKeyDown}
-          />
-          <span className="mt-0.5 block text-center text-[11px] text-muted-foreground" aria-hidden="true">
-            pieces
-          </span>
-        </div>
-      )}
     <div className="relative min-w-0 flex-1">
       <label htmlFor={`${listId}-input`} className="sr-only">
         {label}
@@ -272,6 +248,30 @@ export function VariantPicker({
         <p className="absolute z-30 mt-1 w-full rounded-md border bg-popover p-3 text-sm text-muted-foreground shadow-md">No products match “{q}”.</p>
       )}
     </div>
+      {withQty && (
+        <div className="w-20 shrink-0">
+          <label htmlFor={`${listId}-qty`} className="sr-only">
+            Pieces
+          </label>
+          <Input
+            id={`${listId}-qty`}
+            inputMode="decimal"
+            autoComplete="off"
+            title="Pieces added by the next scan"
+            className="text-right tabular-nums"
+            value={qty}
+            onChange={(e) => {
+              setQty(e.target.value.trim());
+              setError(null);
+            }}
+            onFocus={(e) => e.target.select()}
+            onKeyDown={onQtyKeyDown}
+          />
+          <span className="mt-0.5 block text-center text-[11px] text-muted-foreground" aria-hidden="true">
+            pieces
+          </span>
+        </div>
+      )}
     </div>
   );
 }

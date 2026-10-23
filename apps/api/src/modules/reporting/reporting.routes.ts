@@ -3,6 +3,7 @@ import {
   customerItemsQuerySchema,
   customerLedgerQuerySchema,
   dashboardQuerySchema,
+  inventoryReportQuerySchema,
   itemLedgerQuerySchema,
   periodReportQuerySchema,
   SALES_GROUP_LABELS,
@@ -11,6 +12,7 @@ import {
   type CustomerItemsRow,
   type CustomerLedgerLine,
   type ExpensesReport,
+  type InventoryReport,
   type ItemLedgerLine,
   type PaymentsReport,
   type SalesReportRow,
@@ -24,7 +26,7 @@ import { requireAnyPermission, requirePermission } from '../auth/auth.middleware
 import { assertLocationAccess, locationScope } from '../auth/location-scope';
 import { getDashboard } from './dashboard.service';
 import { customerItemsReport, customerLedger, itemLedger } from './ledgers.service';
-import { expensesReport, paymentsReport, salesReport, stockReport } from './operational.service';
+import { expensesReport, inventoryReport, paymentsReport, salesReport, stockReport } from './operational.service';
 
 /** Expenses are not recorded per store. */
 const expensesQuerySchema = periodReportQuerySchema.omit({ locationId: true });
@@ -47,6 +49,7 @@ const docs: [string, string, Parameters<typeof registry.registerPath>[0]['reques
   ['/reports/payments', 'Money taken and refunded by payment method; ?format=csv (reports.sales or reports.financial)', { query: periodReportQuerySchema }],
   ['/reports/expenses', 'Posted expenses by category, whole business; ?format=csv (reports.financial or expenses.view)', { query: expensesQuerySchema }],
   ['/reports/stock', 'Stock on hand, value, rate of sale and status, with each store’s quantity; ?format=csv (reports.inventory or inventory.view)', { query: stockReportQuerySchema }],
+  ['/reports/inventory', 'Stock on hand and value business-wide and at each store, products and stores A–Z; ?view=by-location for one CSV row per store and product; ?format=csv (reports.inventory or inventory.view)', { query: inventoryReportQuerySchema }],
   ['/reports/customer-items', 'Items bought per customer, less returns; ?format=csv (reports.sales)', { query: customerItemsQuerySchema }],
   ['/reports/item-ledger', 'One item’s stock movements with opening, running and closing quantity, at a store or business-wide; ?format=csv (reports.inventory or inventory.view)', { query: itemLedgerQuerySchema }],
   ['/reports/customer-ledger', 'One customer’s sales, payments and returns with opening, running and closing balance; ?format=csv (customers.view or reports.sales)', { query: customerLedgerQuerySchema }],
@@ -95,6 +98,29 @@ const stockColumns = (stores: StockReport['stores']): CsvColumn<StockRow>[] => [
   { header: 'Sold in period', value: (r) => r.soldInPeriod },
   { header: 'Days of cover', value: (r) => r.daysOfCover },
   { header: 'Status', value: (r) => r.status },
+];
+type InventoryRow = InventoryReport['rows'][number];
+const inventoryColumns = (stores: InventoryReport['stores']): CsvColumn<InventoryRow>[] => [
+  { header: 'SKU', value: (r) => r.sku },
+  { header: 'Product', value: (r) => r.product },
+  { header: 'Variant', value: (r) => r.variant },
+  { header: 'Total on hand', value: (r) => r.onHand },
+  { header: 'Total value', value: (r) => r.value },
+  ...stores.flatMap((st, i): CsvColumn<InventoryRow>[] => [
+    { header: `${st.name} qty`, value: (r) => r.byStore[i]!.qty },
+    { header: `${st.name} value`, value: (r) => r.byStore[i]!.value },
+  ]),
+  { header: 'Average cost', value: (r) => r.avgCost },
+];
+type InventoryStoreLine = { store: string; row: InventoryRow; qty: string; value: string };
+const inventoryByStoreColumns: CsvColumn<InventoryStoreLine>[] = [
+  { header: 'Location', value: (l) => l.store },
+  { header: 'SKU', value: (l) => l.row.sku },
+  { header: 'Product', value: (l) => l.row.product },
+  { header: 'Variant', value: (l) => l.row.variant },
+  { header: 'On hand', value: (l) => l.qty },
+  { header: 'Average cost', value: (l) => l.row.avgCost },
+  { header: 'Value', value: (l) => l.value },
 ];
 const customerItemColumns: CsvColumn<CustomerItemsRow>[] = [
   { header: 'Customer code', value: (r) => r.customerCode },
@@ -159,6 +185,19 @@ reportingRouter.get('/reports/stock', ...requireAnyPermission('reports.inventory
   const q = parse(stockReportQuerySchema, req.query);
   const report = await stockReport({ ...q, stores: (await reportStores(req, q.locationId, true))?.ids ?? null });
   if (q.format === 'csv') return sendCsv(res, `stock-${q.status}.csv`, stockColumns(report.stores), report.rows);
+  res.json({ data: report });
+});
+reportingRouter.get('/reports/inventory', ...requireAnyPermission('reports.inventory', 'inventory.view'), async (req, res) => {
+  const q = parse(inventoryReportQuerySchema, req.query);
+  const report = await inventoryReport({ ...q, stores: (await reportStores(req, q.locationId, true))?.ids ?? null });
+  if (q.format === 'csv') {
+    if (q.view === 'summary') return sendCsv(res, 'inventory.csv', inventoryColumns(report.stores), report.rows);
+    // Stores A–Z, each with its products A–Z; a product with nothing at a store is left out there unless asked for.
+    const lines = report.stores.flatMap((st, i) =>
+      report.rows.filter((r) => q.includeZero || r.byStore[i]!.qty !== '0.000').map((r) => ({ store: st.name, row: r, ...r.byStore[i]! })),
+    );
+    return sendCsv(res, 'inventory-by-location.csv', inventoryByStoreColumns, lines);
+  }
   res.json({ data: report });
 });
 reportingRouter.get('/reports/customer-items', ...requirePermission('reports.sales'), async (req, res) => {

@@ -5,6 +5,8 @@ import {
   ZERO,
   type Decimal,
   type ExpensesReport,
+  type InventoryAtStore,
+  type InventoryReport,
   type PaymentsReport,
   type SalesGroup,
   type SalesReport,
@@ -287,6 +289,62 @@ export async function stockReport(q: { days: number; status: 'all' | 'low' | 'ou
       onHand: sum(rows.map((r) => r.onHand)).toFixed(3),
       value: fmt(sum(rows.map((r) => r.value))),
       byStore: locations.map((_, i) => sum(rows.map((r) => r.byStore[i]!)).toFixed(3)),
+    },
+  };
+}
+
+// ── Inventory ────────────────────────────────────────────────────────────
+
+const byName = (a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: 'base', numeric: true });
+
+/**
+ * What is on hand business-wide (or across the stores given) and at each store, A–Z by product then variant, stores
+ * A–Z. Store values use the business-wide average cost; business-wide, the total value is the books' stock value.
+ * Products with nothing on hand are left out unless `includeZero`.
+ */
+export async function inventoryReport(q: { includeZero?: boolean | undefined; stores?: string[] | null }): Promise<InventoryReport> {
+  const prisma = getPrisma();
+  const stores = q.stores ?? null;
+  const [variants, balances, locations] = await Promise.all([
+    prisma.productVariant.findMany({
+      where: { archivedAt: null, product: { archivedAt: null } },
+      select: { id: true, sku: true, name: true, avgCost: true, stockQty: true, stockValue: true, product: { select: { name: true } } },
+    }),
+    prisma.inventoryBalance.findMany({ where: stores ? { locationId: { in: stores } } : {}, select: { variantId: true, locationId: true, qtyOnHand: true } }),
+    prisma.location.findMany({
+      where: stores ? { id: { in: stores } } : { OR: [{ isActive: true }, { balances: { some: { qtyOnHand: { not: 0 } } } }] },
+      select: { id: true, name: true },
+    }),
+  ]);
+  locations.sort((a, b) => byName(a.name, b.name));
+  variants.sort((a, b) => byName(a.product.name, b.product.name) || byName(a.name, b.name));
+  const atStore = new Map<string, Decimal>();
+  for (const b of balances) atStore.set(`${b.variantId}:${b.locationId}`, (atStore.get(`${b.variantId}:${b.locationId}`) ?? ZERO).plus(b.qtyOnHand.toString()));
+
+  const rows: InventoryReport['rows'] = [];
+  for (const v of variants) {
+    const cost = dec(v.avgCost.toString());
+    const byStore = locations.map((l) => atStore.get(`${v.id}:${l.id}`) ?? ZERO);
+    const onHand = stores ? sum(byStore) : dec(v.stockQty.toString());
+    if (onHand.isZero() && !q.includeZero && byStore.every((x) => x.isZero())) continue;
+    rows.push({
+      variantId: v.id,
+      sku: v.sku,
+      product: v.product.name,
+      variant: v.name,
+      avgCost: cost.toFixed(4),
+      onHand: onHand.toFixed(3),
+      value: stores ? fmt(onHand.times(cost)) : v.stockValue.toFixed(2),
+      byStore: byStore.map((x): InventoryAtStore => ({ qty: x.toFixed(3), value: fmt(x.times(cost)) })),
+    });
+  }
+  return {
+    stores: locations,
+    rows,
+    totals: {
+      onHand: sum(rows.map((r) => r.onHand)).toFixed(3),
+      value: fmt(sum(rows.map((r) => r.value))),
+      byStore: locations.map((_, i) => ({ qty: sum(rows.map((r) => r.byStore[i]!.qty)).toFixed(3), value: fmt(sum(rows.map((r) => r.byStore[i]!.value))) })),
     },
   };
 }

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type request from 'supertest';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { dec, sum, type CustomerItemsReport, type CustomerLedger, type DashboardData, type ItemLedger, type SalesReport, type StockReport } from '@rhoyards/shared';
+import { dec, sum, type CustomerItemsReport, type CustomerLedger, type DashboardData, type InventoryReport, type ItemLedger, type SalesReport, type StockReport } from '@rhoyards/shared';
 import { businessDate } from '../../src/lib/business-date';
 import { toCsv } from '../../src/lib/csv';
 import { getPrisma } from '../../src/lib/prisma';
@@ -185,6 +185,26 @@ describe('operational reports', () => {
     expect(r.stores.map((st) => st.id)).toContain(await mainLocationId());
     const one: StockReport = await ok(get(owner, `/reports/stock?locationId=${await mainLocationId()}`));
     expect(one.stores).toEqual([]);
+  });
+
+  it('inventory lists products and stores A–Z, with store quantities adding up to the total', async () => {
+    const r: InventoryReport = await ok(get(owner, '/reports/inventory'));
+    const az = (xs: string[]) => [...xs].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base', numeric: true }));
+    expect(r.stores.map((st) => st.name)).toEqual(az(r.stores.map((st) => st.name)));
+    expect(r.rows.map((x) => x.product)).toEqual(az(r.rows.map((x) => x.product)));
+    const row = r.rows.find((x) => x.variantId === gel)!;
+    expect(row.onHand).toBe('7.000');
+    expect(sum(row.byStore.map((at) => at.qty)).toFixed(3)).toBe('7.000');
+    expect(r.rows.every((x) => x.onHand !== '0.000')).toBe(true); // nothing-on-hand products only when asked for
+    const withZero: InventoryReport = await ok(get(owner, '/reports/inventory?includeZero=true'));
+    expect(withZero.rows.length).toBeGreaterThanOrEqual(r.rows.length);
+
+    const one: InventoryReport = await ok(get(owner, `/reports/inventory?locationId=${await mainLocationId()}`));
+    expect(one.stores.map((st) => st.id)).toEqual([await mainLocationId()]);
+    expect((await get(stockKeeper, '/reports/inventory')).status).toBe(200);
+    const csv = await get(owner, '/reports/inventory?view=by-location&format=csv');
+    expect(csv.text.split('\n')[0]).toContain('Location');
+    expect(csv.text).toContain(row.sku);
   });
 
   it('items per customer leave out walk-in sales', async () => {

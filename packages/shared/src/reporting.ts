@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { dateInput } from './inputs';
+import { booleanQuery, dateInput } from './inputs';
 
 // ── Dashboard ─────────────────────────────────────────────────────────────
 
@@ -205,6 +205,46 @@ export interface StockReport {
   stores: { id: string; name: string }[];
   rows: (StockReportRow & { byStore: string[] })[];
   totals: { onHand: string; value: string; byStore: string[] };
+}
+
+// ── Inventory (business-wide and per store) ───────────────────────────────
+
+export const INVENTORY_VIEWS = ['summary', 'by-location'] as const;
+export type InventoryView = (typeof INVENTORY_VIEWS)[number];
+
+export const inventoryReportQuerySchema = z.object({
+  ...store,
+  /** Also list products with nothing on hand. */
+  includeZero: booleanQuery,
+  /** CSV layout: one row per product with a column per store, or one row per store and product. */
+  view: z.enum(INVENTORY_VIEWS).default('summary'),
+  format: z.enum(['json', 'csv']).default('json'),
+});
+
+export interface InventoryAtStore {
+  qty: string;
+  value: string;
+}
+
+export interface InventoryReportRow {
+  variantId: string;
+  sku: string;
+  product: string;
+  variant: string;
+  avgCost: string;
+  /** Across the stores covered. */
+  onHand: string;
+  value: string;
+  /** In the order of the report's `stores`. */
+  byStore: InventoryAtStore[];
+}
+
+export interface InventoryReport {
+  /** The stores covered, A–Z. */
+  stores: { id: string; name: string }[];
+  /** Products A–Z by product name, then variant name. */
+  rows: InventoryReportRow[];
+  totals: { onHand: string; value: string; byStore: InventoryAtStore[] };
 }
 
 // ── Items bought per customer ─────────────────────────────────────────────
